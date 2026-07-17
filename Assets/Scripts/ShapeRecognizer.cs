@@ -172,11 +172,11 @@ public static class ShapeRecognizer
     {
         switch (type)
         {
-            case ShapeType.RightTriangle: return "прямоугольный треугольник";
-            case ShapeType.AcuteTriangle: return "остроугольный треугольник";
-            case ShapeType.Square: return "квадрат";
-            case ShapeType.Parallelogram: return "параллелограмм";
-            default: return "фигура";
+            case ShapeType.RightTriangle: return "right triangle";
+            case ShapeType.AcuteTriangle: return "acute triangle";
+            case ShapeType.Square: return "square";
+            case ShapeType.Parallelogram: return "parallelogram";
+            default: return "shape";
         }
     }
 }

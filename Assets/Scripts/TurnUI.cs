@@ -13,10 +13,10 @@ public class TurnUI : MonoBehaviour
 
         var gm = GameManager.Instance;
 
-        turnText.text = $"Ход игрока {gm.currentPlayer}";
+        turnText.text = $"Player {gm.currentPlayer}'s turn";
         turnText.color = gm.GetCurrentColor();
 
-        score1Text.text = $"Красный: {gm.player1Score}";
-        score2Text.text = $"Зелёный: {gm.player2Score}";
+        score1Text.text = $"Red: {gm.player1Score}";
+        score2Text.text = $"Green: {gm.player2Score}";
     }
 }

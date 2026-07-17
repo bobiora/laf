@@ -19,18 +19,25 @@ public class GameOverUI : MonoBehaviour
 
     public void Show(int winnerPlayer, Color winnerColor, int winnerScore, bool draw)
     {
-        if (panel != null) panel.SetActive(true);
+        if (panel == null)
+        {
+            Debug.LogError("GameOverUI.panel is not assigned! Drag GameOverPanel into the panel field in the inspector.");
+            return;
+        }
+
+        panel.SetActive(true);
+        panel.transform.SetAsLastSibling();
 
         if (resultText != null)
         {
             if (draw)
             {
-                resultText.text = $"Ничья! {winnerScore} : {winnerScore}";
+                resultText.text = $"Draw! {winnerScore} : {winnerScore}";
                 resultText.color = Color.white;
             }
             else
             {
-                resultText.text = $"Игрок {winnerPlayer} победил! {winnerScore} очков";
+                resultText.text = $"Player {winnerPlayer} wins! {winnerScore} points";
                 resultText.color = winnerColor;
             }
         }

@@ -32,6 +32,10 @@ public class BoardGenerator : MonoBehaviour
                 PointClick pc = obj.GetComponent<PointClick>();
                 pc.gridX = x;
                 pc.gridY = y;
+
+                // Точки должны рисоваться поверх линий (у LineRenderer sortingOrder = 0).
+                SpriteRenderer psr = obj.GetComponent<SpriteRenderer>();
+                if (psr != null) psr.sortingOrder = 10;
             }
         }
     }

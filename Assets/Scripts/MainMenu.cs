@@ -14,8 +14,8 @@ public class MainMenu : MonoBehaviour
     void Start()
     {
         // Слушаем изменения слайдеров, чтобы обновлять текст
-        widthSlider.onValueChanged.AddListener(v => widthLabel.text = $"Ширина: {(int)v}");
-        heightSlider.onValueChanged.AddListener(v => heightLabel.text = $"Высота: {(int)v}");
+        widthSlider.onValueChanged.AddListener(v => widthLabel.text = $"Width: {(int)v}");
+        heightSlider.onValueChanged.AddListener(v => heightLabel.text = $"Height: {(int)v}");
     }
 
     public void OnPlayClicked()
