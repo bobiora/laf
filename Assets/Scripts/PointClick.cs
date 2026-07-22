@@ -37,7 +37,7 @@ public class PointClick : MonoBehaviour
 
         if (hit != null && hit.gameObject == this.gameObject)
         {
-            // Сообщаем менеджеру о клике — он решит, что делать
+            // Notify the manager — it decides what to do
             GameManager.Instance.OnPointClicked(this);
         }
     }

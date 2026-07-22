@@ -3,27 +3,27 @@ using System.Collections.Generic;
 
 public static class ShapeRecognizer
 {
-    // Типы фигур и очки за них
+    // Shape types and points awarded for each
     public enum ShapeType
     {
         Unknown = 0,
-        RightTriangle = 1,      // прямоугольный треугольник
-        AcuteTriangle = 2,      // остроугольный треугольник
-        Square = 3,             // квадрат
-        Parallelogram = 4       // параллелограмм
+        RightTriangle = 1,      // right triangle
+        AcuteTriangle = 2,      // acute triangle
+        Square = 3,             // square
+        Parallelogram = 4       // parallelogram
     }
 
-    // Главный метод: получаем список точек фигуры, возвращаем её тип
+    // Main entry: given shape boundary points, returns its type
     public static ShapeType Recognize(List<PointClick> points)
     {
-        // Переводим в координаты сетки
+        // Convert to grid coordinates
         List<Vector2> coords = new List<Vector2>();
         foreach (var p in points)
             coords.Add(new Vector2(p.gridX, p.gridY));
 
-        // Упорядочиваем по периметру и удаляем коллинеарные промежуточные вершины:
-        // если игрок построил треугольник, но провёл сторону через промежуточную точку сетки,
-        // цикл содержит 4 вершины, но геометрически это по-прежнему треугольник.
+        // Order around the perimeter and remove collinear intermediate vertices:
+        // if the player built a triangle but drew a side through an intermediate grid point,
+        // the cycle has 4 vertices but is still geometrically a triangle.
         coords = OrderByAngle(coords);
         coords = SimplifyPolygon(coords);
 
@@ -35,8 +35,8 @@ public static class ShapeRecognizer
         return ShapeType.Unknown;
     }
 
-    // Убирает точки, лежащие на прямой между соседями по циклу.
-    // Для каждой P с соседями A и B: если (P-A) x (B-P) ≈ 0, то P на отрезке AB.
+    // Removes points lying on the line between cycle neighbors.
+    // For each P with neighbors A and B: if (P-A) x (B-P) ≈ 0, then P is on segment AB.
     public static List<Vector2> SimplifyPolygon(List<Vector2> pts)
     {
         List<Vector2> result = new List<Vector2>(pts);
@@ -63,11 +63,11 @@ public static class ShapeRecognizer
         return result;
     }
 
-    // --- Треугольники ---
-    // Считаем три угла напрямую и классифицируем по ним:
-    //   - хотя бы один угол ≈ 90° (±1°) → прямоугольный
-    //   - все три угла < 90° (с тем же допуском) → остроугольный
-    //   - иначе (есть тупой угол) → Unknown
+    // --- Triangles ---
+    // Compute three angles directly and classify:
+    //   - at least one angle ≈ 90° (±1°) → right
+    //   - all three angles < 90° (same tolerance) → acute
+    //   - otherwise (obtuse present) → Unknown
     static ShapeType RecognizeTriangle(List<Vector2> pts)
     {
         const float tolerance = 1f;
@@ -82,50 +82,50 @@ public static class ShapeRecognizer
         {
             if (Mathf.Abs(angles[i] - 90f) <= tolerance)
             {
-                // Прямой угол в вершине i. Если два катета равны — это 45-45-90
-                // (равнобедренный прямоугольный, "острый" визуально) → AcuteTriangle.
+                // Right angle at vertex i. If the two legs are equal — 45-45-90
+                // (isosceles right, visually "acute") → AcuteTriangle.
                 int j = (i + 1) % 3;
                 int k = (i + 2) % 3;
                 float leg1 = (pts[j] - pts[i]).sqrMagnitude;
                 float leg2 = (pts[k] - pts[i]).sqrMagnitude;
                 if (Mathf.Abs(leg1 - leg2) < 0.01f && leg1 > 1.01f)
-                    return ShapeType.AcuteTriangle; // крупный равнобедренный прямоугольный
-                return ShapeType.RightTriangle;     // включая базовый 1x1 половинчик клетки
+                    return ShapeType.AcuteTriangle; // large isosceles right triangle
+                return ShapeType.RightTriangle;     // including basic 1x1 half-cell
             }
         }
 
         foreach (float a in angles)
             if (a >= 90f - tolerance)
-                return ShapeType.Unknown; // тупоугольный — 1 очко по умолчанию
+                return ShapeType.Unknown; // obtuse — 1 point by default
 
         return ShapeType.AcuteTriangle;
     }
 
-    // Угол в вершине vertex между рёбрами к соседям n1 и n2 (в градусах)
+    // Angle at vertex between edges to neighbors n1 and n2 (degrees)
     static float AngleAt(Vector2 vertex, Vector2 n1, Vector2 n2)
     {
         return Vector2.Angle(n1 - vertex, n2 - vertex);
     }
 
-    // --- Четырёхугольники ---
-    // На вход приходят точки, уже упорядоченные по периметру (см. Recognize).
+    // --- Quadrilaterals ---
+    // Input points are already ordered around the perimeter (see Recognize).
     static ShapeType RecognizeQuadrilateralOrdered(List<Vector2> ordered)
     {
-        // Векторы сторон
+        // Side vectors
         Vector2 s1 = ordered[1] - ordered[0];
         Vector2 s2 = ordered[2] - ordered[1];
         Vector2 s3 = ordered[3] - ordered[2];
         Vector2 s4 = ordered[0] - ordered[3];
 
-        // Параллелограмм: противоположные стороны равны и параллельны
-        // (s1 == -s3) означает s1 + s3 == 0
+        // Parallelogram: opposite sides equal and parallel
+        // (s1 == -s3) means s1 + s3 == 0
         bool parallelogram = (s1 + s3).sqrMagnitude < 0.01f
                           && (s2 + s4).sqrMagnitude < 0.01f;
 
         if (!parallelogram)
             return ShapeType.Unknown;
 
-        // Квадрат: все стороны равны + соседние стороны перпендикулярны
+        // Square: all sides equal + adjacent sides perpendicular
         float len1 = s1.sqrMagnitude;
         float len2 = s2.sqrMagnitude;
 
@@ -138,7 +138,7 @@ public static class ShapeRecognizer
         return ShapeType.Parallelogram;
     }
 
-    // Упорядочивает точки по углу вокруг их центра (по часовой стрелке)
+    // Order points by angle around their centroid (clockwise)
     static List<Vector2> OrderByAngle(List<Vector2> pts)
     {
         Vector2 center = Vector2.zero;
@@ -155,7 +155,7 @@ public static class ShapeRecognizer
         return sorted;
     }
 
-    // Получить количество очков за тип фигуры
+    // Points awarded for a shape type
     public static int GetPoints(ShapeType type)
     {
         switch (type)

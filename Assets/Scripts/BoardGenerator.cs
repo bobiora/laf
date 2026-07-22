@@ -2,14 +2,14 @@ using UnityEngine;
 
 public class BoardGenerator : MonoBehaviour
 {
-    public GameObject pointPrefab;  // сюда перетащим префаб точки
+    public GameObject pointPrefab;  // assign the point prefab here
     public int width = 4;
     public int height = 4;
-    public float spacing = 1.2f;    // расстояние между точками
+    public float spacing = 1.2f;    // distance between grid points
 
     void Start()
     {
-        // Читаем настройки из главного меню (если запускали оттуда)
+        // Read settings from the main menu (when starting from there)
         width = GameSettings.BoardWidth;
         height = GameSettings.BoardHeight;
         GenerateGrid();
@@ -17,7 +17,7 @@ public class BoardGenerator : MonoBehaviour
 
     void GenerateGrid()
     {
-        // Считаем сдвиг, чтобы сетка была по центру экрана
+        // Offset so the grid is centered on screen
         float offsetX = (width - 1) * spacing / 2f;
         float offsetY = (height - 1) * spacing / 2f;
 
@@ -33,7 +33,7 @@ public class BoardGenerator : MonoBehaviour
                 pc.gridX = x;
                 pc.gridY = y;
 
-                // Точки должны рисоваться поверх линий (у LineRenderer sortingOrder = 0).
+                // Points must render above lines (LineRenderer sortingOrder = 0).
                 SpriteRenderer psr = obj.GetComponent<SpriteRenderer>();
                 if (psr != null) psr.sortingOrder = 10;
             }

@@ -1,10 +1,9 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-// Строит закрашенный полигон из списка вершин в мировых координатах.
-// Использует простое ушное отсечение (ear clipping). Полигон предполагается простым
-// (без самопересечений); порядок вершин может быть как CW, так и CCW — при
-// необходимости он инвертируется.
+// Builds a filled polygon from world-space vertex list.
+// Uses simple ear clipping. Polygon is assumed simple (no self-intersections);
+// vertex order may be CW or CCW — reversed when needed.
 public static class PolygonFill
 {
     public static GameObject Create(List<Vector2> worldBoundary, Color color, int sortingOrder, Transform parent = null)
@@ -12,7 +11,7 @@ public static class PolygonFill
         if (worldBoundary == null || worldBoundary.Count < 3) return null;
 
         List<Vector2> verts = new List<Vector2>(worldBoundary);
-        if (SignedArea(verts) < 0) verts.Reverse(); // приводим к CCW
+        if (SignedArea(verts) < 0) verts.Reverse(); // ensure CCW
 
         int[] triangles = EarClip(verts);
         if (triangles == null || triangles.Length == 0) return null;
@@ -51,7 +50,7 @@ public static class PolygonFill
             Vector2 q = pts[(i + 1) % pts.Count];
             a += (q.x - p.x) * (q.y + p.y);
         }
-        return -a * 0.5f; // положительная для CCW
+        return -a * 0.5f; // positive for CCW
     }
 
     static int[] EarClip(List<Vector2> verts)
@@ -76,7 +75,7 @@ public static class PolygonFill
                 Vector2 b = verts[i1];
                 Vector2 c = verts[i2];
 
-                // Треугольник должен быть выпуклым в CCW-полигоне (cross > 0).
+                // Triangle must be convex in a CCW polygon (cross > 0).
                 if (Cross(b - a, c - b) <= 0f) continue;
 
                 bool containsOther = false;
@@ -95,7 +94,7 @@ public static class PolygonFill
                 clipped = true;
                 break;
             }
-            if (!clipped) break; // страховка от вырожденной геометрии
+            if (!clipped) break; // guard against degenerate geometry
         }
 
         if (indices.Count == 3)
@@ -120,7 +119,7 @@ public static class PolygonFill
         return !(hasNeg && hasPos);
     }
 
-    // Стандартный ray-casting: возвращает true, если точка p строго внутри полигона.
+    // Standard ray casting: true if point p is strictly inside the polygon.
     public static bool PointInPolygon(Vector2 p, List<Vector2> polygon)
     {
         bool inside = false;
