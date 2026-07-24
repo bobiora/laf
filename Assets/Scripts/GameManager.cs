@@ -139,23 +139,6 @@ public class GameManager : MonoBehaviour
         return best;
     }
 
-    // Returns the nearest point whose center is within 'radius' world units of worldPos,
-    // or null if none. Used for swipe snapping (tolerant of the cursor not being exactly
-    // over a point's collider).
-    public PointClick GetNearestPointWithinRadius(Vector3 worldPos, float radius)
-    {
-        PointClick[] all = FindObjectsByType<PointClick>(FindObjectsSortMode.None);
-        PointClick best = null;
-        float bestSq = radius * radius;
-        Vector2 w = worldPos;
-        foreach (var pc in all)
-        {
-            float d = ((Vector2)pc.transform.position - w).sqrMagnitude;
-            if (d <= bestSq) { bestSq = d; best = pc; }
-        }
-        return best;
-    }
-
     // Enables the preview line (called when a swipe begins).
     public void ShowPreview()
     {
@@ -488,10 +471,26 @@ public class GameManager : MonoBehaviour
         return null;
     }
 
-    bool AreAdjacent(PointClick a, PointClick b)
+    public bool AreAdjacent(PointClick a, PointClick b)
     {
         return Mathf.Max(Mathf.Abs(a.gridX - b.gridX), Mathf.Abs(a.gridY - b.gridY)) == 1
             && !(a.gridX == b.gridX && a.gridY == b.gridY);
+    }
+
+    // Returns existing board points that are 8-directionally adjacent to 'origin'.
+    // Used by the swipe input to know which points may trigger an auto-commit.
+    public List<PointClick> GetAdjacentPoints(PointClick origin)
+    {
+        List<PointClick> result = new List<PointClick>();
+        if (origin == null) return result;
+
+        PointClick[] all = FindObjectsByType<PointClick>(FindObjectsSortMode.None);
+        foreach (var pc in all)
+        {
+            if (pc == origin) continue;
+            if (AreAdjacent(origin, pc)) result.Add(pc);
+        }
+        return result;
     }
 
     bool WouldCrossExistingEdge(PointClick a, PointClick b) => EdgeCrossesExisting(a, b);
