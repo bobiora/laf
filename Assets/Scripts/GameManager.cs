@@ -7,12 +7,23 @@ public class GameManager : MonoBehaviour
 
     public GameObject linePrefab;
 
-    public Color player1Color = Color.red;
-    public Color player2Color = Color.green;
+    // Per-player colors are configured in the inspector and fed into the IPlayer
+    // instances constructed in Awake.
+    [SerializeField] private Color player1Color = Color.red;
+    [SerializeField] private Color player2Color = Color.green;
 
-    public int currentPlayer = 1;
-    public int player1Score = 0;
-    public int player2Score = 0;
+    // Player abstraction: index 0 = player 1, index 1 = player 2.
+    private IPlayer[] players = new IPlayer[2];
+    private int[] scores = new int[2];
+    private int currentPlayerIndex = 0; // 0 or 1
+
+    private IPlayer CurrentPlayer => players[currentPlayerIndex];
+    private Color CurrentColor => CurrentPlayer.Color;
+
+    // Backward-compatible public API used by TurnUI (thin delegates over the arrays).
+    public int currentPlayer => currentPlayerIndex + 1; // 1 or 2
+    public int player1Score => scores[0];
+    public int player2Score => scores[1];
 
     public GameOverUI gameOverUI;
     public bool isGameOver = false;
@@ -48,6 +59,13 @@ public class GameManager : MonoBehaviour
     void Awake()
     {
         Instance = this;
+
+        // Construct the two human players. Colors come from the inspector fields.
+        players[0] = new HumanPlayer(1, player1Color);
+        players[1] = new HumanPlayer(2, player2Color);
+        // TODO: AIPlayer — to add a computer opponent, replace one slot with
+        //       new AIPlayer(id, color, ...) implementing IPlayer. No other GameManager
+        //       change is required for turn/score/color handling.
     }
 
     void Start()
@@ -405,12 +423,12 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        if (player1Score > player2Score)
-            gameOverUI.Show(1, player1Color, player1Score, false);
-        else if (player2Score > player1Score)
-            gameOverUI.Show(2, player2Color, player2Score, false);
+        if (scores[0] > scores[1])
+            gameOverUI.Show(1, players[0].Color, scores[0], false);
+        else if (scores[1] > scores[0])
+            gameOverUI.Show(2, players[1].Color, scores[1], false);
         else
-            gameOverUI.Show(0, Color.white, player1Score, true);
+            gameOverUI.Show(0, Color.white, scores[0], true);
     }
 
     void DrawLine(PointClick a, PointClick b)
@@ -432,18 +450,17 @@ public class GameManager : MonoBehaviour
 
     void SwitchPlayer()
     {
-        currentPlayer = (currentPlayer == 1) ? 2 : 1;
+        currentPlayerIndex = 1 - currentPlayerIndex;
     }
 
     void AddScore(int points)
     {
-        if (currentPlayer == 1) player1Score += points;
-        else player2Score += points;
+        scores[currentPlayerIndex] += points;
     }
 
     public Color GetCurrentColor()
     {
-        return currentPlayer == 1 ? player1Color : player2Color;
+        return CurrentColor;
     }
 
     bool EdgeExists(PointClick a, PointClick b)
@@ -461,7 +478,7 @@ public class GameManager : MonoBehaviour
         List<Vector2> world = new List<Vector2>(boundary.Count);
         foreach (var p in boundary) world.Add(p.transform.position);
 
-        Color owner = currentPlayer == 1 ? player1Color : player2Color;
+        Color owner = CurrentColor;
         Color fill = new Color(owner.r, owner.g, owner.b, 0.4f);
 
         GameObject visual = PolygonFill.Create(world, fill, -1); // below lines (0), points — 10

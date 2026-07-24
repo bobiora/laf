@@ -6,8 +6,8 @@ using UnityEngine;
 // Resources.LoadAll won't find sprites). Each imported PNG with
 // Texture Type = Sprite (2D and UI) becomes an available icon.
 //
-// Each player's choice is stored in PlayerPrefs, so it survives restarts and
-// scene changes MainMenu -> Game.
+// Each player's choice is stored via SaveSystem.Current (PlayerPrefs by default), so
+// it survives restarts and scene changes MainMenu -> Game.
 public static class PlayerIcons
 {
     // Filled at runtime from Resources/Icons. Never null after EnsureLoaded().
@@ -42,8 +42,8 @@ public static class PlayerIcons
     // Call at scene start (see MainMenu.Start / TurnUI.Start).
     public static void LoadPreferences()
     {
-        Player1IconIndex = PlayerPrefs.GetInt(Key1, 0);
-        Player2IconIndex = PlayerPrefs.GetInt(Key2, 1);
+        Player1IconIndex = SaveSystem.Current.LoadInt(Key1, 0);
+        Player2IconIndex = SaveSystem.Current.LoadInt(Key2, 1);
         ClampIndices();
     }
 
@@ -51,9 +51,9 @@ public static class PlayerIcons
     public static void SavePreferences()
     {
         ClampIndices();
-        PlayerPrefs.SetInt(Key1, Player1IconIndex);
-        PlayerPrefs.SetInt(Key2, Player2IconIndex);
-        PlayerPrefs.Save();
+        SaveSystem.Current.SaveInt(Key1, Player1IconIndex);
+        SaveSystem.Current.SaveInt(Key2, Player2IconIndex);
+        SaveSystem.Current.Flush();
     }
 
     // Keep indices within valid bounds.

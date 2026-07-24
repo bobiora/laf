@@ -3,7 +3,8 @@ using System.Collections.Generic;
 
 public static class ShapeRecognizer
 {
-    // Shape types and points awarded for each
+    // Shape types and points awarded for each. Kept as a thin wrapper over the
+    // IShapeDefinition list so existing call sites (GameManager) do not change.
     public enum ShapeType
     {
         Unknown = 0,
@@ -13,10 +14,26 @@ public static class ShapeRecognizer
         Parallelogram = 4       // parallelogram
     }
 
-    // Main entry: given shape boundary points, returns its type
-    public static ShapeType Recognize(List<PointClick> points)
+    // Registered shape definitions in priority order. The first whose Matches returns
+    // true wins. Order matters:
+    //   - Square before Parallelogram (a square is also a parallelogram).
+    //   - AcuteTriangle before RightTriangle (large isosceles-right counts as acute).
+    //   - UnknownShape last (its Matches always returns true — the fallback).
+    // To add a new shape type, implement IShapeDefinition and insert it here in the
+    // correct priority position. No other change to the recognizer is needed.
+    static readonly List<IShapeDefinition> definitions = new List<IShapeDefinition>
     {
-        // Convert to grid coordinates
+        new SquareShape(),
+        new ParallelogramShape(),
+        new AcuteTriangleShape(),
+        new RightTriangleShape(),
+        new UnknownShape()
+    };
+
+    // Main entry: given shape boundary points, returns the matching definition.
+    public static IShapeDefinition RecognizeShape(List<PointClick> points)
+    {
+        // Convert to grid coordinates.
         List<Vector2> coords = new List<Vector2>();
         foreach (var p in points)
             coords.Add(new Vector2(p.gridX, p.gridY));
@@ -24,15 +41,35 @@ public static class ShapeRecognizer
         // Order around the perimeter and remove collinear intermediate vertices:
         // if the player built a triangle but drew a side through an intermediate grid point,
         // the cycle has 4 vertices but is still geometrically a triangle.
+        // Simplification MUST run BEFORE Matches — each shape assumes simplified input.
         coords = OrderByAngle(coords);
         coords = SimplifyPolygon(coords);
 
-        if (coords.Count == 3)
-            return RecognizeTriangle(coords);
-        else if (coords.Count == 4)
-            return RecognizeQuadrilateralOrdered(coords);
+        // First matching definition wins. UnknownShape guarantees a non-null result.
+        foreach (var def in definitions)
+            if (def.Matches(coords))
+                return def;
 
-        return ShapeType.Unknown;
+        return definitions[definitions.Count - 1]; // fallback (unreachable in practice)
+    }
+
+    // Backward-compatible entry: returns the ShapeType enum used by existing call sites.
+    public static ShapeType Recognize(List<PointClick> points)
+    {
+        return ToShapeType(RecognizeShape(points));
+    }
+
+    // Maps a recognized definition back onto the legacy enum.
+    static ShapeType ToShapeType(IShapeDefinition def)
+    {
+        switch (def)
+        {
+            case SquareShape _: return ShapeType.Square;
+            case ParallelogramShape _: return ShapeType.Parallelogram;
+            case AcuteTriangleShape _: return ShapeType.AcuteTriangle;
+            case RightTriangleShape _: return ShapeType.RightTriangle;
+            default: return ShapeType.Unknown;
+        }
     }
 
     // Removes points lying on the line between cycle neighbors.
@@ -61,81 +98,6 @@ public static class ShapeRecognizer
             }
         }
         return result;
-    }
-
-    // --- Triangles ---
-    // Compute three angles directly and classify:
-    //   - at least one angle ≈ 90° (±1°) → right
-    //   - all three angles < 90° (same tolerance) → acute
-    //   - otherwise (obtuse present) → Unknown
-    static ShapeType RecognizeTriangle(List<Vector2> pts)
-    {
-        const float tolerance = 1f;
-
-        float[] angles = {
-            AngleAt(pts[0], pts[1], pts[2]),
-            AngleAt(pts[1], pts[0], pts[2]),
-            AngleAt(pts[2], pts[0], pts[1])
-        };
-
-        for (int i = 0; i < 3; i++)
-        {
-            if (Mathf.Abs(angles[i] - 90f) <= tolerance)
-            {
-                // Right angle at vertex i. If the two legs are equal — 45-45-90
-                // (isosceles right, visually "acute") → AcuteTriangle.
-                int j = (i + 1) % 3;
-                int k = (i + 2) % 3;
-                float leg1 = (pts[j] - pts[i]).sqrMagnitude;
-                float leg2 = (pts[k] - pts[i]).sqrMagnitude;
-                if (Mathf.Abs(leg1 - leg2) < 0.01f && leg1 > 1.01f)
-                    return ShapeType.AcuteTriangle; // large isosceles right triangle
-                return ShapeType.RightTriangle;     // including basic 1x1 half-cell
-            }
-        }
-
-        foreach (float a in angles)
-            if (a >= 90f - tolerance)
-                return ShapeType.Unknown; // obtuse — 1 point by default
-
-        return ShapeType.AcuteTriangle;
-    }
-
-    // Angle at vertex between edges to neighbors n1 and n2 (degrees)
-    static float AngleAt(Vector2 vertex, Vector2 n1, Vector2 n2)
-    {
-        return Vector2.Angle(n1 - vertex, n2 - vertex);
-    }
-
-    // --- Quadrilaterals ---
-    // Input points are already ordered around the perimeter (see Recognize).
-    static ShapeType RecognizeQuadrilateralOrdered(List<Vector2> ordered)
-    {
-        // Side vectors
-        Vector2 s1 = ordered[1] - ordered[0];
-        Vector2 s2 = ordered[2] - ordered[1];
-        Vector2 s3 = ordered[3] - ordered[2];
-        Vector2 s4 = ordered[0] - ordered[3];
-
-        // Parallelogram: opposite sides equal and parallel
-        // (s1 == -s3) means s1 + s3 == 0
-        bool parallelogram = (s1 + s3).sqrMagnitude < 0.01f
-                          && (s2 + s4).sqrMagnitude < 0.01f;
-
-        if (!parallelogram)
-            return ShapeType.Unknown;
-
-        // Square: all sides equal + adjacent sides perpendicular
-        float len1 = s1.sqrMagnitude;
-        float len2 = s2.sqrMagnitude;
-
-        bool equalSides = Mathf.Abs(len1 - len2) < 0.01f;
-        bool rightAngle = Mathf.Abs(Vector2.Dot(s1, s2)) < 0.01f;
-
-        if (equalSides && rightAngle)
-            return ShapeType.Square;
-
-        return ShapeType.Parallelogram;
     }
 
     // Order points by angle around their centroid (clockwise)

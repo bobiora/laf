@@ -49,3 +49,6 @@ Assets/_Recovery/
 
 # Local editor / AI settings
 Assets/.claude/
+.claude/
+.cursor/
+.clu
