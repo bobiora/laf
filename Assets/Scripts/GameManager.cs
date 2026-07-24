@@ -66,11 +66,122 @@ public class GameManager : MonoBehaviour
         // TODO: AIPlayer — to add a computer opponent, replace one slot with
         //       new AIPlayer(id, color, ...) implementing IPlayer. No other GameManager
         //       change is required for turn/score/color handling.
+
+        // Own the input state machine. Attaching it here means no manual scene wiring
+        // is required — PointClick no longer reads input itself.
+        if (GetComponent<InputController>() == null)
+            gameObject.AddComponent<InputController>();
     }
 
     void Start()
     {
+        EnsurePreviewLine();
         if (debugEndGame) RunSegmentSelfTest();
+    }
+
+    // ============================================================================
+    //  INPUT / PREVIEW SUPPORT  (used by InputController for swipe drawing)
+    // ============================================================================
+
+    // Cached main camera for screen<->world conversions.
+    private Camera cam;
+    private Camera Cam
+    {
+        get
+        {
+            if (cam == null) cam = Camera.main;
+            return cam;
+        }
+    }
+
+    // Reused semi-transparent preview line shown while swiping. Instantiated once from
+    // linePrefab, rendered above regular lines (0) but below points (10).
+    private LineRenderer previewLine;
+    public LineRenderer PreviewLine => previewLine;
+    private const int PreviewSortingOrder = 5;
+
+    void EnsurePreviewLine()
+    {
+        if (previewLine != null) return;
+        if (linePrefab == null) return;
+
+        GameObject obj = Instantiate(linePrefab);
+        obj.name = "PreviewLine";
+        previewLine = obj.GetComponent<LineRenderer>();
+        previewLine.positionCount = 2;
+        previewLine.sortingOrder = PreviewSortingOrder;
+        obj.SetActive(false); // hidden until a swipe begins
+    }
+
+    // Converts a screen position to a world position on the board plane (z = 0).
+    public Vector3 ScreenToWorld(Vector2 screenPos)
+    {
+        Vector3 w = Cam.ScreenToWorldPoint(screenPos);
+        w.z = 0f;
+        return w;
+    }
+
+    // Returns the point whose collider is under the given screen position, choosing the
+    // nearest center when several oversized colliders overlap. Null if none.
+    public PointClick GetPointAtScreenPos(Vector2 screenPos)
+    {
+        Vector2 world = ScreenToWorld(screenPos);
+        Collider2D[] hits = Physics2D.OverlapPointAll(world);
+        PointClick best = null;
+        float bestSq = float.MaxValue;
+        foreach (var h in hits)
+        {
+            PointClick pc = h.GetComponent<PointClick>();
+            if (pc == null) continue;
+            float d = ((Vector2)pc.transform.position - world).sqrMagnitude;
+            if (d < bestSq) { bestSq = d; best = pc; }
+        }
+        return best;
+    }
+
+    // Returns the nearest point whose center is within 'radius' world units of worldPos,
+    // or null if none. Used for swipe snapping (tolerant of the cursor not being exactly
+    // over a point's collider).
+    public PointClick GetNearestPointWithinRadius(Vector3 worldPos, float radius)
+    {
+        PointClick[] all = FindObjectsByType<PointClick>(FindObjectsSortMode.None);
+        PointClick best = null;
+        float bestSq = radius * radius;
+        Vector2 w = worldPos;
+        foreach (var pc in all)
+        {
+            float d = ((Vector2)pc.transform.position - w).sqrMagnitude;
+            if (d <= bestSq) { bestSq = d; best = pc; }
+        }
+        return best;
+    }
+
+    // Enables the preview line (called when a swipe begins).
+    public void ShowPreview()
+    {
+        EnsurePreviewLine();
+        if (previewLine != null) previewLine.gameObject.SetActive(true);
+    }
+
+    // Disables the preview line (called on commit/cancel/game-over).
+    public void HidePreview()
+    {
+        if (previewLine != null) previewLine.gameObject.SetActive(false);
+    }
+
+    // Updates the preview line endpoints and opacity. 'snapped' = endpoint locked onto a
+    // valid target (more solid), otherwise it follows the raw cursor (more transparent).
+    public void UpdatePreview(Vector3 from, Vector3 to, bool snapped)
+    {
+        EnsurePreviewLine();
+        if (previewLine == null) return;
+
+        Color c = GetCurrentColor();
+        c.a = snapped ? 0.9f : 0.5f;
+        previewLine.startColor = c;
+        previewLine.endColor = c;
+        previewLine.SetPosition(0, from);
+        previewLine.SetPosition(1, to);
     }
 
     void RunSegmentSelfTest()
@@ -91,6 +202,10 @@ public class GameManager : MonoBehaviour
         Debug.Log($"[SelfTest] parallel separate: {(!t3 ? "PASS" : "FAIL")} (expected false)");
     }
 
+    // Tap-tap entry point. Kept as a thin wrapper over the shared validation/commit
+    // helpers so both tap-tap and swipe follow the exact same rules. The swipe input
+    // path (InputController) calls TryCommitLine directly.
+    //
     // Move validation order is strict (early exits). Adjacency is checked FIRST,
     // before draw/face detection/scoring — so a long line through an intermediate
     // grid point (e.g. (0,2)-(2,0) through (1,1)) cannot be added.
@@ -118,50 +233,78 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        // (c) points must be adjacent (8 directions, max(|dx|,|dy|) == 1).
-        //     WITHOUT switching player — invalid input, not a completed move.
-        if (!AreAdjacent(firstPoint, point))
+        // (c)–(g) second click on a different point — validate + commit via shared path.
+        // On both success and rejection the selection is cleared (start fresh next time).
+        PointClick origin = firstPoint;
+        firstPoint.SetSelected(false, Color.white);
+        firstPoint = null;
+        TryCommitLine(origin, point);
+    }
+
+    // Shared legality test (identical rules for tap-tap and swipe). Order matters —
+    // adjacency first, then edge-exists, crossing, claimed-area — see LogRejection.
+    public bool IsLegalMove(PointClick a, PointClick b)
+    {
+        if (a == null || b == null || a == b) return false;
+        if (!AreAdjacent(a, b)) return false;
+        if (EdgeExists(a, b)) return false;
+        if (WouldCrossExistingEdge(a, b)) return false;
+        if (IsInsideAnyClaimedArea(a, b)) return false;
+        return true;
+    }
+
+    // Logs the specific rejection reason, preserving the original [Reject:*] prefixes.
+    // Called only when IsLegalMove returned false.
+    void LogRejection(PointClick a, PointClick b)
+    {
+        if (!AreAdjacent(a, b))
+            Debug.Log($"[Reject:NotAdjacent] Points are not adjacent: ({a.gridX},{a.gridY})-({b.gridX},{b.gridY})");
+        else if (EdgeExists(a, b))
+            Debug.Log($"[Reject:EdgeExists] Line already exists: ({a.gridX},{a.gridY})-({b.gridX},{b.gridY})");
+        else if (WouldCrossExistingEdge(a, b))
+            Debug.Log($"[Reject:Crossing] Line crosses another: ({a.gridX},{a.gridY})-({b.gridX},{b.gridY})");
+        else if (IsInsideAnyClaimedArea(a, b))
+            Debug.Log($"[Reject:InClaimed] Line passes through claimed area: ({a.gridX},{a.gridY})-({b.gridX},{b.gridY})");
+    }
+
+    // Validates a→b and, if legal, commits it (draw, face detection, scoring, turn
+    // switch, end-game check). Returns true if a line was committed. On rejection logs
+    // the matching [Reject:*] message and returns false without changing turn/score.
+    // Used by both the tap-tap wrapper and the swipe input path.
+    public bool TryCommitLine(PointClick a, PointClick b)
+    {
+        if (isGameOver) return false;
+
+        if (!IsLegalMove(a, b))
         {
-            Debug.Log($"[Reject:NotAdjacent] Points are not adjacent: ({firstPoint.gridX},{firstPoint.gridY})-({point.gridX},{point.gridY})");
-            firstPoint.SetSelected(false, Color.white);
-            firstPoint = null;
-            return;
+            LogRejection(a, b);
+            return false;
         }
 
-        // (d) that edge is already drawn.
-        if (EdgeExists(firstPoint, point))
+        CommitLine(a, b);
+        return true;
+    }
+
+    // Cancels any pending tap-tap selection (used when a swipe takes over).
+    public void CancelSelection()
+    {
+        if (firstPoint != null)
         {
-            Debug.Log($"[Reject:EdgeExists] Line already exists: ({firstPoint.gridX},{firstPoint.gridY})-({point.gridX},{point.gridY})");
             firstPoint.SetSelected(false, Color.white);
             firstPoint = null;
-            return;
         }
+    }
 
-        // (e) new line crosses an existing one.
-        if (WouldCrossExistingEdge(firstPoint, point))
-        {
-            Debug.Log($"[Reject:Crossing] Line crosses another: ({firstPoint.gridX},{firstPoint.gridY})-({point.gridX},{point.gridY})");
-            firstPoint.SetSelected(false, Color.white);
-            firstPoint = null;
-            return;
-        }
-
-        // (f) new line passes through a claimed region.
-        if (IsInsideAnyClaimedArea(firstPoint, point))
-        {
-            Debug.Log($"[Reject:InClaimed] Line passes through claimed area: ({firstPoint.gridX},{firstPoint.gridY})-({point.gridX},{point.gridY})");
-            firstPoint.SetSelected(false, Color.white);
-            firstPoint = null;
-            return;
-        }
-
-        // (g) legal move — draw edge, find new faces, award points.
-        DrawLine(firstPoint, point);
-        edges.Add((firstPoint, point));
+    // Legal move — draw edge, find new faces, award points. Caller must have already
+    // validated via IsLegalMove/TryCommitLine.
+    void CommitLine(PointClick a, PointClick b)
+    {
+        DrawLine(a, b);
+        edges.Add((a, b));
 
         // One line closes only NEW minimal faces of the planar graph
         // (at most two — one on each side of the edge). No composite cycles.
-        List<List<PointClick>> awarded = FindAllNewClosedShapes(firstPoint, point);
+        List<List<PointClick>> awarded = FindAllNewClosedShapes(a, b);
         bool gotShape = false;
         foreach (var shape in awarded)
         {
@@ -218,9 +361,6 @@ public class GameManager : MonoBehaviour
 
             ClaimRegion(shape);
         }
-
-        firstPoint.SetSelected(false, Color.white);
-        firstPoint = null;
 
         // If the player closed at least one shape — same player moves again.
         if (!gotShape)
