@@ -6,48 +6,59 @@ using UnityEngine.EventSystems;
 // Owns the pointer input state machine for drawing lines. Supports two coexisting
 // input styles that share the same game rules (GameManager.TryCommitLine):
 //
-//   * Swipe (primary): press on a point A and drag. As soon as the finger's swept path
-//     crosses a legal adjacent target, the line A->target commits AUTOMATICALLY — the
-//     player does not have to release on the point. If that commit keeps the same
-//     player's turn (a shape was closed) and the finger is still down, a new swipe
-//     session chains from the committed point.
+//   * Drag (primary): press on a point A and drag. While the finger is held, the preview
+//     line stretches toward the nearest valid adjacent point and SNAPS onto it when the
+//     finger aims at it. The snapped point becomes the "current target". The target is
+//     RE-TARGETABLE: dragging from A onto B, then onto C, keeps updating the target — the
+//     last one hovered wins. The line A->target is committed ONLY on release (pointer up),
+//     never mid-drag. Dragging the finger back onto the START point cancels the pending
+//     connection (preview disappears); the player may then drag back out and aim again.
 //   * Tap-tap (fallback): quick tap a point, then quick tap a neighbor.
 //
 // The "primary pointer" is a touch when the touchscreen is active, otherwise the mouse,
 // so the same machine drives both mobile and desktop. Uses the new Input System only.
 //
 // State machine:
-//   Idle     -> press over point P             => Pressed  (origin = P, highlight P)
+//   Idle     -> press over point P              => Pressed  (start = P, highlight P)
 //   Pressed  -> drag beyond threshold           => Dragging (clear pending tap, preview)
 //   Pressed  -> release (no drag)               => quick tap -> GameManager.OnPointClicked
-//   Dragging -> swept path enters a legal target => auto-commit; chain or Locked
-//   Dragging -> release with no commit          => cancel, hide preview -> Idle
-//   Locked   -> release                         => Idle (finger held after a non-chaining
-//                                                  commit; ignores input until lifted)
-//   any      -> isGameOver                      => reset to Idle
+//   Dragging -> aim at a legal neighbor          => snap: currentTarget = that neighbor
+//   Dragging -> aim back at the START point      => cancel pending target, hide preview
+//   Dragging -> release with a target            => commit start->target (this move only)
+//   Dragging -> release with no/target==start    => cancel, no connection
+//   any      -> isGameOver                       => reset to Idle
 [DisallowMultipleComponent]
 public class InputController : MonoBehaviour
 {
-    enum SwipeState { Idle, Pressed, Dragging, Locked }
+    enum SwipeState { Idle, Pressed, Dragging }
 
     [Header("Tuning")]
-    [Tooltip("Drag distance (screen pixels) beyond which a press becomes a swipe.")]
+    [Tooltip("Drag distance (screen pixels) beyond which a press becomes a drag.")]
     public float dragThresholdPixels = 10f;
 
-    [Tooltip("How far along the origin->target segment (0..1) the finger must travel " +
-             "before an auto-commit engages. 0.9 = only in the last 10% before the target.")]
+    [Tooltip("How far along the start->target segment (0..1) the finger must aim before " +
+             "the preview snaps onto that target. 0.9 = only in the last 10% before the target.")]
     public float swipeCommitProgress = 0.9f;
 
-    [Tooltip("How far (world units) the finger may stray sideways from the origin->target " +
-             "line and still auto-commit. Smaller = must aim more precisely at the target.")]
+    [Tooltip("How far (world units) the finger may stray sideways from the start->target " +
+             "line and still snap. Smaller = must aim more precisely at the target.")]
     public float swipeCommitPerpTolerance = 0.3f;
 
     private GameManager gm;
 
     private SwipeState state = SwipeState.Idle;
-    private PointClick originPoint;      // where the current press/swipe session started
-    private Vector2 pressScreenPos;      // screen position at press-down
-    private Vector3 lastWorldPos;        // finger world position last drag frame (segment start)
+
+    // The point the current press/drag session started from. The committed line always
+    // runs from here. (Named "start point" in the design; kept as originPoint in code.)
+    private PointClick originPoint;
+
+    // The point the drag is currently aimed at — the one that WILL be connected on release.
+    // Sticky: it holds the last valid neighbor hovered and only changes when the finger
+    // snaps onto a different neighbor, or is reset to null when the finger returns to the
+    // start point (cancel). null = no pending connection.
+    private PointClick currentTarget;
+
+    private Vector2 pressScreenPos;       // screen position at press-down
     private PointClick highlightedTarget; // point currently showing the approach glow
 
     // Adjacent-but-illegal points already logged as skipped this session (avoid spam).
@@ -81,7 +92,6 @@ public class InputController : MonoBehaviour
             case SwipeState.Idle:     TickIdle(p);     break;
             case SwipeState.Pressed:  TickPressed(p);  break;
             case SwipeState.Dragging: TickDragging(p); break;
-            case SwipeState.Locked:   TickLocked(p);   break;
         }
     }
 
@@ -90,22 +100,23 @@ public class InputController : MonoBehaviour
     {
         if (!p.pressedThisFrame) return;
 
-        // Never let a swipe start on top of UI (buttons like "Back to menu").
+        // Never let a drag start on top of UI (buttons like "Back to menu").
         if (IsPointerOverUI()) return;
 
         PointClick hit = gm.GetPointAtScreenPos(p.pos);
         if (hit == null) return; // press over empty space — no-op
 
         originPoint = hit;
+        currentTarget = null;
         pressScreenPos = p.pos;
         state = SwipeState.Pressed;
 
-        // Immediate feedback: origin uses the same highlight as a tap-tap selection.
+        // Immediate feedback: start point uses the same highlight as a tap-tap selection.
         originPoint.SetSelected(true, gm.GetCurrentColor());
         Debug.Log($"[Swipe:Start] press on ({hit.gridX},{hit.gridY})");
     }
 
-    // ---- State: Pressed (origin known, not yet dragging) ----
+    // ---- State: Pressed (start point known, not yet dragging) ----
     void TickPressed(Pointer p)
     {
         if (p.releasedThisFrame || !p.isDown)
@@ -117,22 +128,20 @@ public class InputController : MonoBehaviour
 
         if ((p.pos - pressScreenPos).magnitude > dragThresholdPixels)
         {
-            // A swipe has begun. Once dragging, any pending tap-tap selection is dropped
+            // A drag has begun. Once dragging, any pending tap-tap selection is dropped
             // so the two flows never conflict.
             state = SwipeState.Dragging;
+            currentTarget = null;
             gm.CancelSelection();
-            originPoint.SetSelected(true, gm.GetCurrentColor()); // re-assert origin highlight
+            originPoint.SetSelected(true, gm.GetCurrentColor()); // re-assert start highlight
             gm.ShowPreview();
 
             skippedLogged.Clear();
-            // Seed the swept-segment with the current finger position so the first frame
-            // tests a zero-length segment (no false commit from a stale lastWorldPos).
-            lastWorldPos = gm.ScreenToWorld(p.pos);
             UpdateDrag(p.pos);
         }
     }
 
-    // ---- State: Dragging (preview active) ----
+    // ---- State: Dragging (preview active, choosing/re-choosing the target) ----
     void TickDragging(Pointer p)
     {
         if (p.releasedThisFrame || !p.isDown)
@@ -143,21 +152,14 @@ public class InputController : MonoBehaviour
         UpdateDrag(p.pos);
     }
 
-    // ---- State: Locked (finger still down after a non-chaining commit) ----
-    void TickLocked(Pointer p)
-    {
-        // Ignore all movement; a fresh touch is required for the next move.
-        if (p.releasedThisFrame || !p.isDown)
-            state = SwipeState.Idle;
-    }
-
     // Quick tap: convert the press into the existing tap-tap flow. Clear our transient
-    // origin highlight first; OnPointClicked re-applies it if the point becomes firstPoint.
+    // start highlight first; OnPointClicked re-applies it if the point becomes firstPoint.
     void HandleQuickTap()
     {
         PointClick origin = originPoint;
         state = SwipeState.Idle;
         originPoint = null;
+        currentTarget = null;
 
         if (origin != null)
         {
@@ -167,58 +169,57 @@ public class InputController : MonoBehaviour
     }
 
     // ========================================================================
-    //  SWEPT-SEGMENT AUTO-COMMIT  ("90% progress with perpendicular tolerance")
+    //  DRAG UPDATE  —  pick / re-pick the target, or cancel back to the start
     // ------------------------------------------------------------------------
-    //  A line origin(A)->target(P) commits only when the finger has travelled
-    //  most of the way to P and is aimed roughly at it. For a finger position F
-    //  we measure two things relative to the A->P segment:
+    //  Each drag frame does three things, in order:
     //
-    //    progress = clamp01( dot(F - A, dir) / |A->P| )   // 0 at A, 1 at P
-    //    perp     = |cross(F - A, dir)|                    // sideways offset from the line
+    //   1) CANCEL: if the finger is back over the START point, drop the pending
+    //      target and hide the preview. The drag session stays alive, so the player
+    //      can drag out again and aim at a (possibly different) target.
     //
-    //  Commit requires  progress >= swipeCommitProgress (0.9)  AND
-    //                   perp <= swipeCommitPerpTolerance (0.3) AND the move is legal.
-    //  So the trigger zone is a small slab hugging the last 10% before P, not a
-    //  wide circle — the player keeps control until they clearly commit.
+    //   2) RE-TARGET: find the nearest valid adjacent point the finger is aiming at
+    //      (progress >= swipeCommitProgress along start->point AND within the
+    //      perpendicular tolerance — the same snap test used before). If one is found
+    //      it becomes the new currentTarget. Aiming A -> B -> C simply overwrites it;
+    //      the last one hovered is what gets committed on release.
     //
-    //  We do not only test where the finger IS; we test the SEGMENT it swept this
-    //  frame (lastWorldPos -> currentWorldPos). If ANY point along that segment
-    //  satisfies both conditions, we commit — this is what preserves the "fast
-    //  flick straight through the target" feel while keeping the zone tight.
+    //   3) PREVIEW: draw the preview line. With a currentTarget it locks solid onto
+    //      that target (so the player can see exactly what release will connect);
+    //      with none it trails the raw finger position (semi-transparent).
     //
-    //  When several legal targets qualify at once (diagonals), we pick the one
-    //  CLOSEST TO THE ORIGIN (first the finger reaches). Adjacent-but-illegal
-    //  points that are swept are logged once as [Swipe:Skip] and ignored.
-    //
-    //  The preview snap uses the SAME threshold: the preview only turns solid /
-    //  highlights a target once the current finger position itself clears the 0.9
-    //  progress + perpendicular test, so the visuals never promise a snap that has
-    //  not engaged. (In practice that coincides with the commit frame, so before
-    //  commit the preview simply follows the finger.)
+    //  NOTHING is committed here — a line is only created on release (HandleDragRelease).
     // ========================================================================
     void UpdateDrag(Vector2 screenPos)
     {
         Vector3 worldPos = gm.ScreenToWorld(screenPos);
-        Vector2 segA = lastWorldPos;
-        Vector2 segB = worldPos;
-
-        List<PointClick> adjacent = gm.GetAdjacentPoints(originPoint);
         Vector2 originPos = originPoint.transform.position;
 
-        // --- 1) Auto-commit: swept segment enters the progress+perpendicular zone ---
-        PointClick commitTarget = null;
-        float bestOriginDistSq = float.MaxValue;
+        // --- 1) Cancel: finger returned onto the START point ---
+        PointClick hovered = gm.GetPointAtScreenPos(screenPos);
+        if (hovered == originPoint)
+        {
+            if (currentTarget != null)
+                Debug.Log($"[Swipe:Cancel] back on start ({originPoint.gridX},{originPoint.gridY}), pending target dropped");
+            SetTargetHighlight(null);
+            currentTarget = null;
+            gm.HidePreview(); // per design: preview disappears while on the start point
+            return;
+        }
+
+        // --- 2) Re-target: nearest valid adjacent point the finger is aiming at ---
+        List<PointClick> adjacent = gm.GetAdjacentPoints(originPoint);
+        PointClick snapTarget = null;
+        float bestSnapSq = float.MaxValue;
 
         foreach (PointClick pt in adjacent)
         {
-            Vector2 ptPos = pt.transform.position;
-            if (!SegmentEntersCommitZone(segA, segB, originPos, ptPos)) continue;
+            if (!PointInCommitZone(worldPos, originPos, pt.transform.position)) continue;
 
             if (gm.IsLegalMove(originPoint, pt))
             {
-                // Prefer the target closest to the origin (first one the finger reaches).
-                float od = (ptPos - originPos).sqrMagnitude;
-                if (od < bestOriginDistSq) { bestOriginDistSq = od; commitTarget = pt; }
+                // Prefer the target closest to the start (first one the finger reaches).
+                float od = ((Vector2)pt.transform.position - originPos).sqrMagnitude;
+                if (od < bestSnapSq) { bestSnapSq = od; snapTarget = pt; }
             }
             else if (skippedLogged.Add(pt))
             {
@@ -226,39 +227,29 @@ public class InputController : MonoBehaviour
             }
         }
 
-        if (commitTarget != null)
-        {
-            AutoCommit(commitTarget, worldPos);
-            return;
-        }
-
-        // --- 2) No commit: preview snaps solid ONLY if the current finger position
-        //        itself clears the same 0.9-progress + perpendicular test. ---
-        PointClick snapTarget = null;
-        float bestSnapSq = float.MaxValue;
-        foreach (PointClick pt in adjacent)
-        {
-            if (!gm.IsLegalMove(originPoint, pt)) continue;
-            if (!PointInCommitZone(worldPos, originPos, pt.transform.position)) continue;
-            float od = ((Vector2)pt.transform.position - originPos).sqrMagnitude;
-            if (od < bestSnapSq) { bestSnapSq = od; snapTarget = pt; }
-        }
-
         if (snapTarget != null)
         {
-            SetTargetHighlight(snapTarget);
-            gm.UpdatePreview(originPos, snapTarget.transform.position, true);
+            // Aiming at a valid neighbor -> it becomes the (sticky) current target.
+            currentTarget = snapTarget;
+        }
+
+        // --- 3) Preview ---
+        gm.ShowPreview();
+        if (currentTarget != null)
+        {
+            // Lock the preview onto the point that release would connect.
+            SetTargetHighlight(currentTarget);
+            gm.UpdatePreview(originPos, currentTarget.transform.position, true);
         }
         else
         {
+            // No target yet — trail the finger (semi-transparent).
             SetTargetHighlight(null);
             gm.UpdatePreview(originPos, worldPos, false);
         }
-
-        lastWorldPos = worldPos;
     }
 
-    // True if finger position 'f' is inside the commit zone of target 'p' for origin 'a':
+    // True if finger position 'f' is inside the snap zone of target 'p' for start 'a':
     // progress along a->p is >= swipeCommitProgress AND perpendicular distance to the
     // a->p line is <= swipeCommitPerpTolerance.
     bool PointInCommitZone(Vector2 f, Vector2 a, Vector2 p)
@@ -276,127 +267,40 @@ public class InputController : MonoBehaviour
         return perp <= swipeCommitPerpTolerance;
     }
 
-    // True if ANY point along the swept segment [s0, s1] satisfies the commit zone of
-    // target 'p' for origin 'a'. Solved analytically: the two commit conditions are each
-    // linear in the segment parameter s, giving an s-interval; the segment enters the zone
-    // iff the intersection of those intervals with [0, 1] is non-empty. Exact for fast
-    // flicks (no sampling gaps).
-    bool SegmentEntersCommitZone(Vector2 s0, Vector2 s1, Vector2 a, Vector2 p)
-    {
-        Vector2 ap = p - a;
-        float len = ap.magnitude;
-        if (len < 1e-6f) return false;
-        Vector2 dir = ap / len;
-
-        // along(s) = along0 + s*alongD  (progress condition: along >= progress*len)
-        float along0 = Vector2.Dot(s0 - a, dir);
-        float alongD = Vector2.Dot(s1 - s0, dir);
-        // perp(s) = perp0 + s*perpD (signed; condition: |perp| <= tol)
-        float perp0 = (s0 - a).x * dir.y - (s0 - a).y * dir.x;
-        float perpD = (s1 - s0).x * dir.y - (s1 - s0).y * dir.x;
-
-        float threshold = swipeCommitProgress * len;
-        float tol = swipeCommitPerpTolerance;
-
-        float lo = 0f, hi = 1f;
-
-        // Progress: along0 + s*alongD >= threshold
-        if (Mathf.Abs(alongD) < 1e-9f)
-        {
-            if (along0 < threshold) return false;
-        }
-        else
-        {
-            float sBound = (threshold - along0) / alongD;
-            if (alongD > 0f) lo = Mathf.Max(lo, sBound);
-            else hi = Mathf.Min(hi, sBound);
-        }
-        if (lo > hi) return false;
-
-        // Perpendicular: -tol <= perp0 + s*perpD <= tol
-        if (Mathf.Abs(perpD) < 1e-9f)
-        {
-            if (Mathf.Abs(perp0) > tol) return false;
-        }
-        else
-        {
-            float s1Bound = (tol - perp0) / perpD;
-            float s2Bound = (-tol - perp0) / perpD;
-            lo = Mathf.Max(lo, Mathf.Min(s1Bound, s2Bound));
-            hi = Mathf.Min(hi, Mathf.Max(s1Bound, s2Bound));
-        }
-
-        return lo <= hi;
-    }
-
-    // Commits origin->target via the shared game logic, then either chains a new swipe
-    // session (same player continued) or locks until the finger is released.
-    void AutoCommit(PointClick target, Vector3 worldPos)
-    {
-        PointClick origin = originPoint;
-        int playerBefore = gm.currentPlayer;
-
-        // Clear this session's transient visuals before committing.
-        SetTargetHighlight(null);
-        origin.SetSelected(false, Color.white);
-
-        bool committed = gm.TryCommitLine(origin, target);
-        if (!committed)
-        {
-            // Defensive: legality was verified this same frame, so this should not happen.
-            Debug.Log($"[Swipe:Cancel] auto-commit rejected ({origin.gridX},{origin.gridY})->({target.gridX},{target.gridY})");
-            gm.HidePreview();
-            state = SwipeState.Locked;
-            originPoint = null;
-            return;
-        }
-
-        Debug.Log($"[Swipe:AutoCommit] ({origin.gridX},{origin.gridY})->({target.gridX},{target.gridY})");
-
-        // The commit may have ended the game.
-        if (gm.isGameOver)
-        {
-            gm.HidePreview();
-            state = SwipeState.Locked;
-            originPoint = null;
-            return;
-        }
-
-        // Same player still to move => a shape was closed => allow a chained swipe.
-        if (gm.currentPlayer == playerBefore)
-        {
-            originPoint = target;
-            skippedLogged.Clear();
-            lastWorldPos = worldPos; // continue the swept path from the current finger pos
-            target.SetSelected(true, gm.GetCurrentColor());
-            gm.UpdatePreview(target.transform.position, worldPos, false);
-            Debug.Log($"[Swipe:Chain] continue from ({target.gridX},{target.gridY})");
-            // state stays Dragging
-        }
-        else
-        {
-            // Turn passed to the other player — no chaining; wait for a fresh touch.
-            gm.HidePreview();
-            state = SwipeState.Locked;
-            originPoint = null;
-        }
-    }
-
-    // Release while dragging with no auto-commit having happened => silent cancel.
+    // ---- Release: the ONLY place a line is committed ----
+    // Commits start->currentTarget through the shared game logic. If there is no target,
+    // or the finger came to rest back on the start point (currentTarget == null), nothing
+    // is created — the whole action is cancelled.
     void HandleDragRelease()
     {
         PointClick origin = originPoint;
+        PointClick target = currentTarget;
 
+        // Clear all transient drag visuals first.
         SetTargetHighlight(null);
-        gm.HidePreview();
         if (origin != null) origin.SetSelected(false, Color.white);
+        gm.HidePreview();
 
         state = SwipeState.Idle;
         originPoint = null;
+        currentTarget = null;
         skippedLogged.Clear();
 
-        if (origin != null)
-            Debug.Log($"[Swipe:Cancel] released with no commit from ({origin.gridX},{origin.gridY})");
+        // Cancel: nothing hovered, or target somehow equals the start point.
+        if (origin == null || target == null || target == origin)
+        {
+            if (origin != null)
+                Debug.Log($"[Swipe:Cancel] released with no target from ({origin.gridX},{origin.gridY})");
+            return;
+        }
+
+        // Commit start->target. TryCommitLine runs the full shared pipeline: legality
+        // check, draw, planar loop/shape detection, scoring, turn switch and end-game.
+        // The finger is already up, so there is no chaining — the next line is a fresh drag.
+        bool committed = gm.TryCommitLine(origin, target);
+        Debug.Log(committed
+            ? $"[Swipe:Commit] ({origin.gridX},{origin.gridY})->({target.gridX},{target.gridY})"
+            : $"[Swipe:Reject] ({origin.gridX},{origin.gridY})->({target.gridX},{target.gridY})");
     }
 
     // Moves the approach glow to 'target' (or clears it when null).
@@ -416,6 +320,7 @@ public class InputController : MonoBehaviour
         gm.HidePreview();
         state = SwipeState.Idle;
         originPoint = null;
+        currentTarget = null;
         skippedLogged.Clear();
     }
 
@@ -452,7 +357,7 @@ public class InputController : MonoBehaviour
         return result;
     }
 
-    // True when the pointer is over a UI element, so clicks on buttons don't start swipes.
+    // True when the pointer is over a UI element, so clicks on buttons don't start drags.
     static bool IsPointerOverUI()
     {
         return EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
