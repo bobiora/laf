@@ -71,6 +71,12 @@ public class GameManager : MonoBehaviour
         // is required — PointClick no longer reads input itself.
         if (GetComponent<InputController>() == null)
             gameObject.AddComponent<InputController>();
+
+        // Haptic feedback (line/shape vibration). Auto-added with default durations so it
+        // works without wiring; add HapticFeedback to this GameObject in the scene to make
+        // its millisecond durations editable in the inspector.
+        if (HapticFeedback.Instance == null && GetComponent<HapticFeedback>() == null)
+            gameObject.AddComponent<HapticFeedback>();
     }
 
     void Start()
@@ -343,6 +349,15 @@ public class GameManager : MonoBehaviour
             Debug.Log($"Player {currentPlayer} built {name} ({shape.Count} vertices)! +{pts} points");
 
             ClaimRegion(shape);
+        }
+
+        // Haptic feedback: a longer buzz when a figure was created, otherwise a short
+        // buzz confirming the line reached and connected to another point. Only one fires
+        // per move — the shape buzz "wins" so the player never feels a double vibration.
+        if (HapticFeedback.Instance != null)
+        {
+            if (gotShape) HapticFeedback.Instance.VibrateShapeCreated();
+            else HapticFeedback.Instance.VibrateLineConnected();
         }
 
         // If the player closed at least one shape — same player moves again.
