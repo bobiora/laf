@@ -20,6 +20,12 @@ Two players take turns connecting dots on a grid with lines. When a line closes 
 - Don't close a shape — turn passes to your opponent
 - The game ends when no free lines remain on the board
 
+## For AI agents / contributors
+
+A structured knowledge base for LLM coding agents lives in [`docs/ai/`](docs/ai/) — read
+[`CLAUDE.md`](CLAUDE.md) and [`docs/ai/INDEX.md`](docs/ai/INDEX.md) first, then open topic
+files as needed. The code under `Assets/Scripts/` is the source of truth.
+
 ## Requirements
 
 - [Unity 6000.3.16f1](https://unity.com/releases/editor/whats-new/6000.3.16f1) (or a compatible Unity 6 version)

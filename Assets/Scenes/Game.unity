@@ -2131,7 +2131,7 @@ MonoBehaviour:
   player2Color: {r: 0, g: 1, b: 0, a: 1}
   gameOverUI: {fileID: 14503719}
   isGameOver: 0
-  debugEndGame: 1
+  debugEndGame: 0
 --- !u!4 &2085815477
 Transform:
   m_ObjectHideFlags: 0
@@ -2162,6 +2162,7 @@ MonoBehaviour:
   lineConnectMilliseconds: 20
   shapeCreatedMilliseconds: 60
   hapticsEnabled: 1
+  logHaptics: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

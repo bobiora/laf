@@ -36,13 +36,21 @@ public class InputController : MonoBehaviour
     [Tooltip("Drag distance (screen pixels) beyond which a press becomes a drag.")]
     public float dragThresholdPixels = 10f;
 
-    [Tooltip("How far along the start->target segment (0..1) the finger must aim before " +
-             "the preview snaps onto that target. 0.9 = only in the last 10% before the target.")]
-    public float swipeCommitProgress = 0.9f;
+    [Tooltip("The finger must aim within this many degrees of a neighbor's direction (from " +
+             "the start point) for the preview to snap onto it. Neighbors are 45 degrees " +
+             "apart, so keep this below ~44. Direction-based snapping (instead of requiring " +
+             "the finger to physically reach the tiny target dot) is what makes drawing " +
+             "reliable on a zoomed-out 10x10 board where the dots are only a few pixels wide.")]
+    public float snapAngleDegrees = 38f;
 
-    [Tooltip("How far (world units) the finger may stray sideways from the start->target " +
-             "line and still snap. Smaller = must aim more precisely at the target.")]
-    public float swipeCommitPerpTolerance = 0.3f;
+    [Tooltip("Dead-zone around the start point, as a fraction of the distance to the nearest " +
+             "neighbor. Inside it the drag shows no target; dragging back into it cancels a " +
+             "pending target (the design's 'return to start = cancel').")]
+    public float startDeadZoneFraction = 0.35f;
+
+    [Tooltip("Verbose input logging ([Swipe:*]). OPT-IN — keep off for shipping so it does " +
+             "not hitch on device. Independent of GameManager.debugEndGame.")]
+    public bool debugInput = false;
 
     private GameManager gm;
 
@@ -113,7 +121,7 @@ public class InputController : MonoBehaviour
 
         // Immediate feedback: start point uses the same highlight as a tap-tap selection.
         originPoint.SetSelected(true, gm.GetCurrentColor());
-        Debug.Log($"[Swipe:Start] press on ({hit.gridX},{hit.gridY})");
+        if (debugInput) Debug.Log($"[Swipe:Start] press on ({hit.gridX},{hit.gridY})");
     }
 
     // ---- State: Pressed (start point known, not yet dragging) ----
@@ -146,7 +154,7 @@ public class InputController : MonoBehaviour
     {
         if (p.releasedThisFrame || !p.isDown)
         {
-            HandleDragRelease();
+            HandleDragRelease(p.pos);
             return;
         }
         UpdateDrag(p.pos);
@@ -173,15 +181,16 @@ public class InputController : MonoBehaviour
     // ------------------------------------------------------------------------
     //  Each drag frame does three things, in order:
     //
-    //   1) CANCEL: if the finger is back over the START point, drop the pending
-    //      target and hide the preview. The drag session stays alive, so the player
-    //      can drag out again and aim at a (possibly different) target.
+    //   1) CANCEL: if the finger is back inside the start-point dead-zone, drop the
+    //      pending target and hide the preview. The drag session stays alive, so the
+    //      player can drag out again and aim at a (possibly different) target.
     //
-    //   2) RE-TARGET: find the nearest valid adjacent point the finger is aiming at
-    //      (progress >= swipeCommitProgress along start->point AND within the
-    //      perpendicular tolerance — the same snap test used before). If one is found
-    //      it becomes the new currentTarget. Aiming A -> B -> C simply overwrites it;
-    //      the last one hovered is what gets committed on release.
+    //   2) RE-TARGET by AIM DIRECTION: pick the legal adjacent point whose direction
+    //      from the start best matches the finger's drag direction (within
+    //      snapAngleDegrees). This does not require the finger to reach the target's
+    //      collider, so a diagonal snaps reliably even when dots are only a few pixels
+    //      apart on a zoomed-out 10x10 board. Aiming A -> B -> C overwrites the target;
+    //      the last one aimed at is what gets committed on release.
     //
     //   3) PREVIEW: draw the preview line. With a currentTarget it locks solid onto
     //      that target (so the player can see exactly what release will connect);
@@ -193,35 +202,59 @@ public class InputController : MonoBehaviour
     {
         Vector3 worldPos = gm.ScreenToWorld(screenPos);
         Vector2 originPos = originPoint.transform.position;
+        Vector2 offset = (Vector2)worldPos - originPos;
+        float dist = offset.magnitude;
 
-        // --- 1) Cancel: finger returned onto the START point ---
-        PointClick hovered = gm.GetPointAtScreenPos(screenPos);
-        if (hovered == originPoint)
+        List<PointClick> adjacent = gm.GetAdjacentPoints(originPoint);
+
+        // Dead-zone radius = a fraction of the distance to the nearest neighbor. Using the
+        // NEAREST neighbor (an orthogonal one) keeps the zone small enough that it never
+        // reaches out to a diagonal target.
+        float nearestAdjSq = float.MaxValue;
+        foreach (PointClick pt in adjacent)
         {
-            if (currentTarget != null)
+            float dSq = ((Vector2)pt.transform.position - originPos).sqrMagnitude;
+            if (dSq < nearestAdjSq) nearestAdjSq = dSq;
+        }
+        float deadZone = Mathf.Sqrt(Mathf.Max(nearestAdjSq, 1e-6f)) * startDeadZoneFraction;
+
+        // --- 1) Cancel: finger essentially back on the START point (inside the dead-zone) ---
+        // Replaces the old "nearest collider center == start" test, which — with dot colliders
+        // (radius 1.4) larger than the spacing (1.2) — treated the whole first half of every
+        // drag as "on the start point" and kept hiding the preview.
+        if (dist < deadZone)
+        {
+            if (currentTarget != null && debugInput)
                 Debug.Log($"[Swipe:Cancel] back on start ({originPoint.gridX},{originPoint.gridY}), pending target dropped");
             SetTargetHighlight(null);
             currentTarget = null;
-            gm.HidePreview(); // per design: preview disappears while on the start point
+            gm.HidePreview();
             return;
         }
 
-        // --- 2) Re-target: nearest valid adjacent point the finger is aiming at ---
-        List<PointClick> adjacent = gm.GetAdjacentPoints(originPoint);
+        // --- 2) Re-target by AIM DIRECTION, not by reaching the target ---
+        // Pick the legal neighbor whose direction (start->neighbor) best matches the finger's
+        // drag direction, provided the finger is aiming within snapAngleDegrees of it. This
+        // commits a diagonal as soon as the finger clearly heads that way, even on a tiny
+        // zoomed-out board where the finger never lands on the target's small collider.
+        Vector2 dir = offset / dist;
+        float minDot = Mathf.Cos(snapAngleDegrees * Mathf.Deg2Rad);
         PointClick snapTarget = null;
-        float bestSnapSq = float.MaxValue;
+        float bestDot = minDot;
 
         foreach (PointClick pt in adjacent)
         {
-            if (!PointInCommitZone(worldPos, originPos, pt.transform.position)) continue;
+            Vector2 pd = (Vector2)pt.transform.position - originPos;
+            float pl = pd.magnitude;
+            if (pl < 1e-6f) continue;
+            float aim = Vector2.Dot(dir, pd / pl);
+            if (aim < minDot) continue; // finger not aimed at this neighbor
 
             if (gm.IsLegalMove(originPoint, pt))
             {
-                // Prefer the target closest to the start (first one the finger reaches).
-                float od = ((Vector2)pt.transform.position - originPos).sqrMagnitude;
-                if (od < bestSnapSq) { bestSnapSq = od; snapTarget = pt; }
+                if (aim > bestDot) { bestDot = aim; snapTarget = pt; }
             }
-            else if (skippedLogged.Add(pt))
+            else if (debugInput && skippedLogged.Add(pt))
             {
                 Debug.Log($"[Swipe:Skip] ({pt.gridX},{pt.gridY}) not a legal target from ({originPoint.gridX},{originPoint.gridY})");
             }
@@ -249,29 +282,16 @@ public class InputController : MonoBehaviour
         }
     }
 
-    // True if finger position 'f' is inside the snap zone of target 'p' for start 'a':
-    // progress along a->p is >= swipeCommitProgress AND perpendicular distance to the
-    // a->p line is <= swipeCommitPerpTolerance.
-    bool PointInCommitZone(Vector2 f, Vector2 a, Vector2 p)
-    {
-        Vector2 ap = p - a;
-        float len = ap.magnitude;
-        if (len < 1e-6f) return false;
-
-        Vector2 dir = ap / len;
-        Vector2 fa = f - a;
-        float progress = Mathf.Clamp01(Vector2.Dot(fa, dir) / len);
-        if (progress < swipeCommitProgress) return false;
-
-        float perp = Mathf.Abs(fa.x * dir.y - fa.y * dir.x);
-        return perp <= swipeCommitPerpTolerance;
-    }
-
     // ---- Release: the ONLY place a line is committed ----
-    // Commits start->currentTarget through the shared game logic. If there is no target,
-    // or the finger came to rest back on the start point (currentTarget == null), nothing
-    // is created — the whole action is cancelled.
-    void HandleDragRelease()
+    // Commits start->target through the shared game logic. The target is the sticky
+    // currentTarget picked during the drag; if aim-based snapping never latched a target
+    // (e.g. a very short flick on a tiny board), currentTarget stays null even though the
+    // finger is released right on a valid neighbor. To avoid dropping that clearly-intended
+    // line, we fall
+    // back to the point UNDER the finger at release: if it is a legal neighbor of the start
+    // point we commit to it. This does NOT loosen any rule (TryCommitLine still validates)
+    // and preserves cancel-on-start (releasing on the start point commits nothing).
+    void HandleDragRelease(Vector2 releaseScreenPos)
     {
         PointClick origin = originPoint;
         PointClick target = currentTarget;
@@ -286,10 +306,17 @@ public class InputController : MonoBehaviour
         currentTarget = null;
         skippedLogged.Clear();
 
-        // Cancel: nothing hovered, or target somehow equals the start point.
-        if (origin == null || target == null || target == origin)
+        if (origin == null)
+            return;
+
+        // Fallback: no sticky target, but the finger may be released on a legal neighbor.
+        if (target == null || target == origin)
+            target = ResolveReleaseTarget(origin, releaseScreenPos);
+
+        // Cancel: still nothing (released on empty space or back on the start point).
+        if (target == null || target == origin)
         {
-            if (origin != null)
+            if (debugInput)
                 Debug.Log($"[Swipe:Cancel] released with no target from ({origin.gridX},{origin.gridY})");
             return;
         }
@@ -298,9 +325,20 @@ public class InputController : MonoBehaviour
         // check, draw, planar loop/shape detection, scoring, turn switch and end-game.
         // The finger is already up, so there is no chaining — the next line is a fresh drag.
         bool committed = gm.TryCommitLine(origin, target);
-        Debug.Log(committed
-            ? $"[Swipe:Commit] ({origin.gridX},{origin.gridY})->({target.gridX},{target.gridY})"
-            : $"[Swipe:Reject] ({origin.gridX},{origin.gridY})->({target.gridX},{target.gridY})");
+        if (debugInput)
+            Debug.Log(committed
+                ? $"[Swipe:Commit] ({origin.gridX},{origin.gridY})->({target.gridX},{target.gridY})"
+                : $"[Swipe:Reject] ({origin.gridX},{origin.gridY})->({target.gridX},{target.gridY})");
+    }
+
+    // Resolves the intended target from the release position when no target snapped during
+    // the drag. Returns the point under the finger if it is a legal neighbor of 'origin';
+    // otherwise null (so releasing on the start point or empty space still cancels).
+    PointClick ResolveReleaseTarget(PointClick origin, Vector2 releaseScreenPos)
+    {
+        PointClick hovered = gm.GetPointAtScreenPos(releaseScreenPos);
+        if (hovered == null || hovered == origin) return null;
+        return gm.IsLegalMove(origin, hovered) ? hovered : null;
     }
 
     // Moves the approach glow to 'target' (or clears it when null).

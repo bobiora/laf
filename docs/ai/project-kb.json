@@ -1,0 +1,354 @@
+{
+  "project": "Dots and Figures",
+  "updated": "2026-08-16",
+  "sourceOfTruth": ["Assets/Scripts/", "CLAUDE.md"],
+  "stack": {
+    "engine": "Unity 6 (6000.3.16f1)",
+    "renderPipeline": "URP 2D",
+    "input": "new Input System (UnityEngine.InputSystem) only",
+    "text": "TextMeshPro",
+    "platform": "Android (min SDK 25)",
+    "scenes": [
+      { "name": "MainMenu", "path": "Assets/Scenes/MainMenu.unity", "buildIndex": 0 },
+      { "name": "Game", "path": "Assets/Scenes/Game.unity", "buildIndex": 1 }
+    ],
+    "prefabs": [
+      "Assets/Prefabs/Point.prefab",
+      "Assets/Prefabs/Line.prefab",
+      "Assets/Prefabs/IconCell.prefab"
+    ],
+    "sortingOrders": { "claimedFills": -1, "lines": 0, "preview": 5, "dots": 10 }
+  },
+  "entities": [
+    {
+      "id": "GameManager",
+      "type": "class",
+      "path": "Assets/Scripts/GameManager.cs",
+      "role": "Central authority: turns, scoring, edges, move validation, planar face detection, region claiming, end-game, preview support, board caches.",
+      "singleton": "GameManager.Instance",
+      "owns": ["edges", "edgeSet", "adjacency", "closedShapes", "claimedRegions", "scores", "players", "currentPlayerIndex", "cachedPoints", "gridLookup"],
+      "keyMethods": ["IsLegalMove", "TryCommitLine", "CommitLine", "FindAllNewClosedShapes", "TraceFace", "GetSortedNeighborsByAngle", "SignedAreaGrid", "EnclosesGridPoint", "AnyLegalMoveRemains", "ClaimRegion", "IsInsideAnyClaimedArea", "SegmentsIntersect", "GetPointAtScreenPos", "GetAdjacentPoints"],
+      "invariants": [
+        "Both input styles commit through TryCommitLine.",
+        "Faces deduped by normalized sequence (NormalizeFace/FacesEqual), not vertex set.",
+        "Bounded face has signed area > 0 in grid coords; outer face is negative.",
+        "Never FindObjectsByType in move/drag hot paths; use caches.",
+        "SwitchPlayer only when no shape closed (extra turn on close)."
+      ]
+    },
+    {
+      "id": "InputController",
+      "type": "class",
+      "path": "Assets/Scripts/InputController.cs",
+      "role": "Pointer input state machine (Idle -> Pressed -> Dragging); drag-to-draw and tap-tap; commits on release.",
+      "owns": ["state", "originPoint", "currentTarget"],
+      "keyMethods": ["Update", "TickIdle", "TickPressed", "TickDragging", "UpdateDrag", "HandleDragRelease", "PointInCommitZone", "ReadPointer"],
+      "addedBy": "GameManager.Awake",
+      "invariants": [
+        "Never use UnityEngine.Input; new Input System only.",
+        "Commit only on release (HandleDragRelease), never mid-drag.",
+        "Dragging back onto start dot cancels the pending target but keeps drag alive."
+      ]
+    },
+    {
+      "id": "BoardGenerator",
+      "type": "class",
+      "path": "Assets/Scripts/BoardGenerator.cs",
+      "role": "Instantiates dot grid from GameSettings; computes GridBounds; auto-attaches CameraFitter.",
+      "keyMethods": ["GenerateGrid", "Start"],
+      "properties": ["GridBounds", "Spacing"],
+      "invariants": ["Sets dot SpriteRenderer sortingOrder to 10.", "Auto-adds CameraFitter to Camera.main."]
+    },
+    {
+      "id": "CameraFitter",
+      "type": "class",
+      "path": "Assets/Scripts/CameraFitter.cs",
+      "role": "Sizes/positions orthographic camera so the whole grid fits, reserving UI pixel margins.",
+      "keyMethods": ["Fit", "ScreenChanged", "WarnIfDotsTooSmall"],
+      "addedBy": "BoardGenerator.Start",
+      "invariants": ["Fits whole grid; pan/zoom is unimplemented TODO.", "Margins expressed in screen pixels (top 200, bottom 150, sides 40)."]
+    },
+    {
+      "id": "PointClick",
+      "type": "class",
+      "path": "Assets/Scripts/PointClick.cs",
+      "role": "One grid dot: holds gridX/gridY and selection/highlight visuals. Passive (no input).",
+      "owns": ["gridX", "gridY", "isSelected"],
+      "keyMethods": ["SetSelected", "SetHighlighted"],
+      "invariants": ["Never reads input or hit-tests itself."]
+    },
+    {
+      "id": "PolygonFill",
+      "type": "static-class",
+      "path": "Assets/Scripts/PolygonFill.cs",
+      "role": "Static ear-clipping mesh builder for claimed fills; point-in-polygon test.",
+      "keyMethods": ["Create", "PointInPolygon", "EarClip"]
+    },
+    {
+      "id": "ShapeRecognizer",
+      "type": "static-class",
+      "path": "Assets/Scripts/ShapeRecognizer.cs",
+      "role": "Orders + simplifies a face boundary, runs a priority list of shape definitions, maps to ShapeType + points/name.",
+      "keyMethods": ["Recognize", "RecognizeShape", "SimplifyPolygon", "GetPoints", "GetName"],
+      "owns": ["definitions"],
+      "invariants": ["SimplifyPolygon runs before Matches.", "Priority: Square, Parallelogram, AcuteTriangle, RightTriangle, Unknown."]
+    },
+    {
+      "id": "GameSettings",
+      "type": "static-class",
+      "path": "Assets/Scripts/GameSettings.cs",
+      "role": "Static board dimensions carried menu -> game.",
+      "owns": ["BoardWidth", "BoardHeight"],
+      "invariants": ["Range 3-10, default 4x4."]
+    },
+    {
+      "id": "HapticFeedback",
+      "type": "class",
+      "path": "Assets/Scripts/HapticFeedback.cs",
+      "role": "Android vibration: short buzz on line connect, longer buzz on shape created.",
+      "singleton": "HapticFeedback.Instance",
+      "keyMethods": ["VibrateLineConnected", "VibrateShapeCreated", "Vibrate"],
+      "addedBy": "GameManager.Awake",
+      "invariants": ["No-op in Editor / non-Android.", "Needs android.permission.VIBRATE."]
+    },
+    {
+      "id": "TurnUI",
+      "type": "class",
+      "path": "Assets/Scripts/TurnUI.cs",
+      "role": "In-game score + turn indicator + player icons; updates only on change.",
+      "keyMethods": ["Update", "Start"],
+      "invariants": ["Score labels hardcode 'Red:'/'Green:'."]
+    },
+    {
+      "id": "GameOverUI",
+      "type": "class",
+      "path": "Assets/Scripts/GameOverUI.cs",
+      "role": "End panel with winner/draw text, Restart, Menu.",
+      "keyMethods": ["Show", "OnMenuClicked", "OnRestartClicked"]
+    },
+    {
+      "id": "BackToMenu",
+      "type": "class",
+      "path": "Assets/Scripts/BackToMenu.cs",
+      "role": "In-game back button -> MainMenu scene.",
+      "keyMethods": ["GoToMenu"]
+    },
+    {
+      "id": "MainMenu",
+      "type": "class",
+      "path": "Assets/Scripts/MainMenu.cs",
+      "role": "Width/Height sliders, settings panel, icon-picker wiring, Start -> loads Game.",
+      "keyMethods": ["OnStartGameClicked", "OnPlayClicked", "OnCancelClicked", "OnQuitClicked", "RefreshIconSlots"]
+    },
+    {
+      "id": "IconPickerDialog",
+      "type": "class",
+      "path": "Assets/Scripts/IconPickerDialog.cs",
+      "role": "Reusable modal grid of selectable icons.",
+      "keyMethods": ["Open", "Close", "BuildGrid", "SpawnCell"]
+    },
+    {
+      "id": "PlayerIcons",
+      "type": "static-class",
+      "path": "Assets/Scripts/PlayerIcons.cs",
+      "role": "Static icon registry: loads Resources/Icons, persists choices, generates fallback circle.",
+      "keyMethods": ["EnsureLoaded", "GetPlayer1Icon", "GetPlayer2Icon", "SetPlayer1Icon", "SetPlayer2Icon", "GetFallbackSprite"]
+    },
+    {
+      "id": "IShapeDefinition",
+      "type": "interface",
+      "path": "Assets/Scripts/Shapes/IShapeDefinition.cs",
+      "role": "A single scorable shape type.",
+      "keyMethods": ["Matches"],
+      "properties": ["Name", "Points"]
+    },
+    {
+      "id": "SquareShape",
+      "type": "class",
+      "path": "Assets/Scripts/Shapes/SquareShape.cs",
+      "role": "Square, 3 points. Registered before Parallelogram.",
+      "keyMethods": ["Matches"]
+    },
+    {
+      "id": "ParallelogramShape",
+      "type": "class",
+      "path": "Assets/Scripts/Shapes/ParallelogramShape.cs",
+      "role": "Parallelogram, 4 points. Opposite sides equal and parallel.",
+      "keyMethods": ["Matches"]
+    },
+    {
+      "id": "AcuteTriangleShape",
+      "type": "class",
+      "path": "Assets/Scripts/Shapes/AcuteTriangleShape.cs",
+      "role": "Acute triangle, 2 points; also claims large isosceles-right. Registered before RightTriangle.",
+      "keyMethods": ["Matches"]
+    },
+    {
+      "id": "RightTriangleShape",
+      "type": "class",
+      "path": "Assets/Scripts/Shapes/RightTriangleShape.cs",
+      "role": "Right triangle, 1 point; excludes large isosceles-right.",
+      "keyMethods": ["Matches"]
+    },
+    {
+      "id": "UnknownShape",
+      "type": "class",
+      "path": "Assets/Scripts/Shapes/UnknownShape.cs",
+      "role": "Fallback; Matches always true. Points 1, but faces classified Unknown are not filled/scored.",
+      "keyMethods": ["Matches"]
+    },
+    {
+      "id": "IPlayer",
+      "type": "interface",
+      "path": "Assets/Scripts/Players/IPlayer.cs",
+      "role": "Participant abstraction.",
+      "properties": ["Id", "Color", "Icon", "DisplayName", "IsHuman"]
+    },
+    {
+      "id": "HumanPlayer",
+      "type": "class",
+      "path": "Assets/Scripts/Players/HumanPlayer.cs",
+      "role": "Only IPlayer implementation; icon pulled live from PlayerIcons.",
+      "properties": ["Icon"]
+    },
+    {
+      "id": "ISaveSystem",
+      "type": "interface",
+      "path": "Assets/Scripts/Save/ISaveSystem.cs",
+      "role": "Key/value persistence abstraction.",
+      "keyMethods": ["SaveInt", "LoadInt", "SaveString", "LoadString", "HasKey", "DeleteKey", "Flush"]
+    },
+    {
+      "id": "PlayerPrefsSaveSystem",
+      "type": "class",
+      "path": "Assets/Scripts/Save/PlayerPrefsSaveSystem.cs",
+      "role": "Default ISaveSystem backed by UnityEngine.PlayerPrefs."
+    },
+    {
+      "id": "SaveSystem",
+      "type": "static-class",
+      "path": "Assets/Scripts/Save/SaveSystem.cs",
+      "role": "Static facade exposing the active ISaveSystem (SaveSystem.Current).",
+      "properties": ["Current"]
+    }
+  ],
+  "rules": [
+    { "id": "adjacency", "statement": "Two dots are adjacent iff max(|dx|,|dy|)==1 in grid coords (8-directional).", "enforcedIn": "GameManager.AreAdjacent" },
+    { "id": "legal-move-order", "statement": "IsLegalMove checks in order: adjacent -> edge not exists -> no crossing -> not through claimed area.", "enforcedIn": "GameManager.IsLegalMove" },
+    { "id": "shared-endpoint-not-crossing", "statement": "A shared endpoint between two segments is not a crossing.", "enforcedIn": "GameManager.SegmentsIntersect" },
+    { "id": "commit-on-release", "statement": "A drag commits a line only on pointer release; returning to the start dot cancels.", "enforcedIn": "InputController.HandleDragRelease" },
+    { "id": "extra-turn", "statement": "The current player moves again iff at least one scorable face was claimed this move.", "enforcedIn": "GameManager.CommitLine" },
+    { "id": "guard-too-many-dots", "statement": "A face with more than 4 boundary dots is not filled or scored.", "enforcedIn": "GameManager.CommitLine" },
+    { "id": "guard-encloses-free-point", "statement": "A face enclosing a free grid point is unfinished: not filled or scored.", "enforcedIn": "GameManager.EnclosesGridPoint" },
+    { "id": "unknown-not-scored", "statement": "A face classified Unknown is not filled or scored (kept splittable).", "enforcedIn": "GameManager.CommitLine" },
+    { "id": "bounded-face", "statement": "A real face has signed area > 0 in grid coords; the outer face is negative and discarded.", "enforcedIn": "GameManager.TryAddFace" },
+    { "id": "claimed-interior-only", "statement": "A move is illegal only if it enters a claimed region's interior; grazing a border is allowed.", "enforcedIn": "GameManager.IsInsideAnyClaimedArea" },
+    { "id": "game-over", "statement": "The game ends when no legal move remains.", "enforcedIn": "GameManager.AnyLegalMoveRemains" },
+    { "id": "shape-priority", "statement": "Shape definitions are tried in priority order; first Matches wins (Square, Parallelogram, AcuteTriangle, RightTriangle, Unknown).", "enforcedIn": "ShapeRecognizer.definitions" },
+    { "id": "simplify-before-match", "statement": "Boundary is ordered by angle and simplified (collinear removed) before shape matching.", "enforcedIn": "ShapeRecognizer.RecognizeShape" }
+  ],
+  "shapes": [
+    { "name": "Square", "class": "SquareShape", "points": 3 },
+    { "name": "Parallelogram", "class": "ParallelogramShape", "points": 4 },
+    { "name": "Acute triangle", "class": "AcuteTriangleShape", "points": 2 },
+    { "name": "Right triangle", "class": "RightTriangleShape", "points": 1 },
+    { "name": "Unknown", "class": "UnknownShape", "points": 1, "scored": false }
+  ],
+  "flows": [
+    {
+      "id": "drag-to-draw",
+      "steps": [
+        "InputController.Update reads primary pointer (touch else mouse).",
+        "TickIdle: press over a dot (not UI) -> Pressed, originPoint set, highlight.",
+        "TickPressed: move > dragThresholdPixels -> Dragging, CancelSelection, ShowPreview.",
+        "UpdateDrag: on start dot -> cancel target; else snap nearest legal neighbor in commit zone -> currentTarget; preview.",
+        "HandleDragRelease: commit currentTarget (or dot under finger fallback) via TryCommitLine; null -> cancel."
+      ]
+    },
+    {
+      "id": "tap-tap",
+      "steps": [
+        "Quick tap -> HandleQuickTap -> GameManager.OnPointClicked.",
+        "One click per frame (lastClickFrame).",
+        "No selection -> select firstPoint; same dot -> deselect; different dot -> TryCommitLine."
+      ]
+    },
+    {
+      "id": "commit-line",
+      "steps": [
+        "TryCommitLine: reject via LogRejection if !IsLegalMove.",
+        "CommitLine: DrawLine, edges.Add, RegisterEdge.",
+        "FindAllNewClosedShapes -> up to two bounded faces.",
+        "Per face: skip if Count>4, EnclosesGridPoint, Unknown, or already closed; else score + ClaimRegion.",
+        "Haptic: shape buzz if any shape closed else line buzz.",
+        "SwitchPlayer only if no shape closed.",
+        "EndGame if !AnyLegalMoveRemains."
+      ]
+    },
+    {
+      "id": "face-tracing",
+      "steps": [
+        "Trace both sides of the new edge: TraceFace(b,a) and TraceFace(a,b).",
+        "At each vertex take the next-clockwise neighbor via GetSortedNeighborsByAngle.",
+        "TryAddFace keeps faces with signed area > 0, not already closed, and not duplicate."
+      ]
+    },
+    {
+      "id": "scene-boot",
+      "steps": [
+        "MainMenu.Start wires sliders/icons.",
+        "OnStartGameClicked writes GameSettings.BoardWidth/Height, LoadScene Game.",
+        "GameManager.Awake: Instance, HumanPlayers, add InputController + HapticFeedback.",
+        "BoardGenerator.Start: read GameSettings, GenerateGrid, publish GridBounds, add + call CameraFitter.Fit."
+      ]
+    }
+  ],
+  "files": [
+    { "path": "Assets/Scripts/GameManager.cs", "summary": "Central game authority.", "symbols": ["GameManager", "ClaimedRegion", "IsLegalMove", "CommitLine", "TraceFace", "AnyLegalMoveRemains"] },
+    { "path": "Assets/Scripts/InputController.cs", "summary": "Pointer state machine; drag + tap-tap.", "symbols": ["InputController", "SwipeState", "UpdateDrag", "HandleDragRelease"] },
+    { "path": "Assets/Scripts/BoardGenerator.cs", "summary": "Dot grid generation; GridBounds; auto CameraFitter.", "symbols": ["BoardGenerator", "GenerateGrid", "GridBounds"] },
+    { "path": "Assets/Scripts/CameraFitter.cs", "summary": "Fit orthographic camera to whole grid.", "symbols": ["CameraFitter", "Fit"] },
+    { "path": "Assets/Scripts/PointClick.cs", "summary": "One dot: coords + visuals; passive.", "symbols": ["PointClick", "SetSelected", "SetHighlighted"] },
+    { "path": "Assets/Scripts/PolygonFill.cs", "summary": "Ear-clip fill mesh; point-in-polygon.", "symbols": ["PolygonFill", "Create", "PointInPolygon"] },
+    { "path": "Assets/Scripts/ShapeRecognizer.cs", "summary": "Classify a face boundary.", "symbols": ["ShapeRecognizer", "ShapeType", "Recognize", "SimplifyPolygon"] },
+    { "path": "Assets/Scripts/GameSettings.cs", "summary": "Static board dimensions.", "symbols": ["GameSettings", "BoardWidth", "BoardHeight"] },
+    { "path": "Assets/Scripts/HapticFeedback.cs", "summary": "Android vibration feedback.", "symbols": ["HapticFeedback", "VibrateLineConnected", "VibrateShapeCreated"] },
+    { "path": "Assets/Scripts/TurnUI.cs", "summary": "In-game score/turn/icons.", "symbols": ["TurnUI"] },
+    { "path": "Assets/Scripts/GameOverUI.cs", "summary": "End panel.", "symbols": ["GameOverUI", "Show"] },
+    { "path": "Assets/Scripts/BackToMenu.cs", "summary": "Back button to MainMenu.", "symbols": ["BackToMenu", "GoToMenu"] },
+    { "path": "Assets/Scripts/MainMenu.cs", "summary": "Menu sliders/panel/icons/start.", "symbols": ["MainMenu", "OnStartGameClicked"] },
+    { "path": "Assets/Scripts/IconPickerDialog.cs", "summary": "Modal icon grid.", "symbols": ["IconPickerDialog", "Open"] },
+    { "path": "Assets/Scripts/PlayerIcons.cs", "summary": "Icon registry + persistence + fallback.", "symbols": ["PlayerIcons", "EnsureLoaded", "GetFallbackSprite"] },
+    { "path": "Assets/Scripts/Shapes/IShapeDefinition.cs", "summary": "Shape-type interface.", "symbols": ["IShapeDefinition", "Matches"] },
+    { "path": "Assets/Scripts/Shapes/SquareShape.cs", "summary": "Square, 3 pts.", "symbols": ["SquareShape"] },
+    { "path": "Assets/Scripts/Shapes/ParallelogramShape.cs", "summary": "Parallelogram, 4 pts.", "symbols": ["ParallelogramShape"] },
+    { "path": "Assets/Scripts/Shapes/AcuteTriangleShape.cs", "summary": "Acute triangle, 2 pts.", "symbols": ["AcuteTriangleShape"] },
+    { "path": "Assets/Scripts/Shapes/RightTriangleShape.cs", "summary": "Right triangle, 1 pt.", "symbols": ["RightTriangleShape"] },
+    { "path": "Assets/Scripts/Shapes/UnknownShape.cs", "summary": "Fallback shape, not scored.", "symbols": ["UnknownShape"] },
+    { "path": "Assets/Scripts/Players/IPlayer.cs", "summary": "Participant interface.", "symbols": ["IPlayer"] },
+    { "path": "Assets/Scripts/Players/HumanPlayer.cs", "summary": "Only IPlayer impl.", "symbols": ["HumanPlayer"] },
+    { "path": "Assets/Scripts/Save/ISaveSystem.cs", "summary": "Persistence interface.", "symbols": ["ISaveSystem"] },
+    { "path": "Assets/Scripts/Save/PlayerPrefsSaveSystem.cs", "summary": "PlayerPrefs impl.", "symbols": ["PlayerPrefsSaveSystem"] },
+    { "path": "Assets/Scripts/Save/SaveSystem.cs", "summary": "Static save facade.", "symbols": ["SaveSystem", "Current"] }
+  ],
+  "doNot": [
+    "Use UnityEngine.Input; use the new Input System only.",
+    "Commit a line mid-drag; commit only on pointer release.",
+    "Remove the >4-boundary-dots or EnclosesGridPoint guards in CommitLine.",
+    "Fill or score an Unknown face.",
+    "Dedup faces by vertex set instead of normalized sequence.",
+    "Call FindObjectsByType in the move/drag/per-frame hot paths.",
+    "Delete debugEndGame / debugInput flags; keep them but default false.",
+    "Assume TurnUI labels follow player colors; they hardcode 'Red:'/'Green:'.",
+    "Assume pan/zoom exists; CameraFitter only fits the whole grid.",
+    "Make PointClick read input or hit-test itself."
+  ],
+  "todosInCode": [
+    { "id": "AIPlayer", "status": "unimplemented", "path": "Assets/Scripts/GameManager.cs", "note": "Replace a players[] slot with an IPlayer AI impl; no other turn/score change needed." },
+    { "id": "pan-zoom", "status": "unimplemented", "path": "Assets/Scripts/CameraFitter.cs", "note": "Large boards warn about small dots; pan/zoom is a candidate, not built." }
+  ],
+  "notImplemented": ["sound / audio manager", "animations beyond point highlight scale-up", "AI opponent (TODO only)", "pan/zoom (TODO only)"],
+  "knownStaleDocs": [
+    { "path": ".claude/skills/dots-and-figures/SKILL.md", "why": "predates InputController/CameraFitter/Shapes/Players/Save" }
+  ]
+}

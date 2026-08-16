@@ -34,7 +34,7 @@ public class HapticFeedback : MonoBehaviour
 
     [Tooltip("Log vibration init/calls to the console (visible in Android logcat). " +
              "Handy while debugging; turn off for shipping.")]
-    [SerializeField] private bool logHaptics = true;
+    [SerializeField] private bool logHaptics = false;
 
     // Public getters/setters (clamped to >= 0) so other systems or a settings UI can
     // read/adjust the durations at runtime.

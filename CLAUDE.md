@@ -5,6 +5,14 @@
 > overlaps but is partly stale (it predates `InputController`, `CameraFitter`, and the
 > `Shapes/`, `Players/`, `Save/` layers); **this file is the authoritative reference.**
 
+## AI knowledge base
+
+A deeper, structured knowledge base for agents lives in `docs/ai/`. This file stays the
+short always-on brief; open the KB only when you need more detail.
+- Start at [`docs/ai/INDEX.md`](docs/ai/INDEX.md) — one-page map + KB file table.
+- Machine-readable graph: [`docs/ai/project-kb.json`](docs/ai/project-kb.json).
+- Source-of-truth order: `Assets/Scripts/` (code) > `CLAUDE.md` > `docs/ai/**` > the stale skill file.
+
 ## 1. Project Overview
 
 A **two-player local (hot-seat) Unity 2D game for Android**. Players alternate turns drawing
@@ -77,8 +85,15 @@ Two input styles share the exact same rules (both end in `GameManager.TryCommitL
 - **Tap-tap (fallback):** tap A, then tap a neighbor. Tapping A twice deselects.
 
 The primary pointer is a touch when a `Touchscreen` is active, else the mouse — one code path
-for mobile and desktop. Snap zone = progress ≥ `swipeCommitProgress` (0.9) along A→target
-**and** within `swipeCommitPerpTolerance` (0.3) sideways.
+for mobile and desktop. **Targeting is by aim direction, not by reaching the target dot:** once
+the finger leaves a small dead-zone around A (`startDeadZoneFraction` of the nearest-neighbor
+distance), the preview snaps to the legal neighbor whose A→neighbor direction is within
+`snapAngleDegrees` (38°) of the finger's drag direction. This is what makes a diagonal drawable
+on a zoomed-out 10×10 board where dots are only a few pixels wide (the old "progress ≥ 0.9 onto
+the tiny target collider" snap made late-game diagonals nearly impossible to commit). On release,
+if no target latched, it falls back to the dot under the finger if that is a legal neighbor.
+Geometry validity (crossing, claimed-area) is computed in **grid coordinates with exact integer
+math**, so the camera zoom never causes a float false-`[Reject:Crossing]`/`[Reject:InClaimed]`.
 
 ### Move validation (order is strict — `GameManager.IsLegalMove`)
 1. **Adjacent** — `max(|dx|,|dy|) == 1` in grid coords (8-directional). Blocks long lines through intermediate dots.
@@ -144,7 +159,8 @@ spacing drops below `minDotSpacingPixels` (44).
 - **One click processed per frame** (`lastClickFrame` guard) — several `PointClick`s could otherwise dispatch the same physical click.
 - **Zero manual wiring for input/camera:** `GameManager` auto-adds `InputController`; `BoardGenerator` auto-adds `CameraFitter`. Don't rely on them being in the scene.
 - **Board size limited to 3–10** (slider min/max in `MainMenu.unity`, whole numbers). Large boards can make dots hard to tap — `CameraFitter` warns but still shows the whole grid (pan/zoom is a TODO).
-- **`GameManager.debugEndGame` currently defaults to `true`** for diagnostics (verbose `[EndGameCheck]`/`[Face]`/`[Reject:*]`/`[Diag]` logs). **Set to false for shipping builds.**
+- **`GameManager.debugEndGame` defaults to `false`** (shipping). It gates the verbose `[EndGameCheck]`/`[Face]`/`[Diag]` diagnostics; when on, logging is kept to O(1) per-move summaries (never O(all pairs)) so it can't flood the console on a 10×10 board. `InputController.debugInput` (also default `false`) independently gates the `[Swipe:*]` input logs. `[Reject:*]` rejection logs are always on (they fire only on an actual rejected move).
+- **Board queries are cached, never scanned per move.** `GameManager` caches the dot array + a `(gridX,gridY)` lookup, an O(1) coord-keyed edge set (`EdgeExists`), and an incident-edge adjacency map (face tracing). `AnyLegalMoveRemains` re-validates a cached known-legal move first (fast-path), else scans each dot against only its 8 grid neighbours (O(points)) and stops at the first legal move. Don't reintroduce `FindObjectsByType` in the move/drag hot paths.
 - **TurnUI score labels are hardcoded "Red:"/"Green:"** even though player colors are inspector-configurable — update `TurnUI.Update` if colors change.
 
 ## 5. Conventions
@@ -164,7 +180,7 @@ spacing drops below `minDotSpacingPixels` (44).
 - **Add an AI opponent:** implement `IPlayer` (e.g. `AIPlayer`) and swap it into a slot in `GameManager.Awake` (`players[1] = new AIPlayer(...)`). Turn/score/color handling needs no other change; you'll add the move-generation hook. (Marked `// TODO: AIPlayer` in `GameManager`.)
 - **Change grid limits/default:** edit the Width/Height slider `m_MinValue`/`m_MaxValue`/`m_Value` in `MainMenu.unity` (and the defaults in `GameSettings`).
 - **Swap the save backend:** implement `ISaveSystem` and assign `SaveSystem.Current` at startup (e.g. cloud save). No call-site changes needed.
-- **Tune drag feel:** `InputController` inspector fields — `dragThresholdPixels`, `swipeCommitProgress`, `swipeCommitPerpTolerance`.
+- **Tune drag feel:** `InputController` inspector fields — `dragThresholdPixels`, `snapAngleDegrees` (aim tolerance for snapping to a neighbor; keep < 44° since neighbors are 45° apart), `startDeadZoneFraction`.
 - **Adjust screen fit:** `CameraFitter` margins/limits (`topMarginPixels`, `bottomMarginPixels`, `sideMarginPixels`, `minOrthographicSize`, `worldPadding`).
 - **Not yet implemented:** **sound** (only Unity's default `AudioListener` exists — no SFX/music system) and **animations** (only the point scale-up highlight in `PointClick.SetHighlighted`). Add an audio manager script + prefab if needed.
 
