@@ -99,6 +99,13 @@ public class GameManager : MonoBehaviour
         // its millisecond durations editable in the inspector.
         if (HapticFeedback.Instance == null && GetComponent<HapticFeedback>() == null)
             gameObject.AddComponent<HapticFeedback>();
+
+        // Subtle per-turn background tint (faint red on P1, faint green on P2). Attached to
+        // the Main Camera so it tints the clear color behind the world-space grid rather than
+        // overlaying the board. Auto-added so no scene wiring is required.
+        Camera mainCam = Camera.main;
+        if (mainCam != null && mainCam.GetComponent<TurnBackground>() == null)
+            mainCam.gameObject.AddComponent<TurnBackground>();
     }
 
     void Start()
