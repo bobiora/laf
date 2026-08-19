@@ -2176,8 +2176,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a7ec87769bf4dbf4489878ce39f7e383, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HapticFeedback
-  lineConnectMilliseconds: 20
-  shapeCreatedMilliseconds: 60
+  lineConnectMilliseconds: 50
+  shapeCreatedMilliseconds: 80
   hapticsEnabled: 1
   logHaptics: 0
 --- !u!1660057539 &9223372036854775807
