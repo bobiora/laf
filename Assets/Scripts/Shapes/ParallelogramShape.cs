@@ -7,9 +7,6 @@ using UnityEngine;
 // Input is assumed already ordered around the perimeter and simplified.
 public class ParallelogramShape : IShapeDefinition
 {
-    public string Name => "Parallelogram";
-    public int Points => 4;
-
     public bool Matches(List<Vector2> boundary)
     {
         if (boundary.Count != 4) return false;

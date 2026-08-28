@@ -9,9 +9,6 @@ using UnityEngine;
 // Input is assumed already ordered around the perimeter and simplified.
 public class AcuteTriangleShape : IShapeDefinition
 {
-    public string Name => "Acute triangle";
-    public int Points => 2;
-
     public bool Matches(List<Vector2> boundary)
     {
         if (boundary.Count != 3) return false;

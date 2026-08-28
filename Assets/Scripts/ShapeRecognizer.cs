@@ -3,8 +3,9 @@ using System.Collections.Generic;
 
 public static class ShapeRecognizer
 {
-    // Shape types and points awarded for each. Kept as a thin wrapper over the
-    // IShapeDefinition list so existing call sites (GameManager) do not change.
+    // Scorable shape types. This recognizer only classifies geometry; the points and
+    // display names for each type live in the editor-tunable ShapeScoringConfig asset
+    // (read by GameManager), so balance can change without touching this file.
     public enum ShapeType
     {
         Unknown = 0,
@@ -115,30 +116,5 @@ public static class ShapeRecognizer
             return angA.CompareTo(angB);
         });
         return sorted;
-    }
-
-    // Points awarded for a shape type
-    public static int GetPoints(ShapeType type)
-    {
-        switch (type)
-        {
-            case ShapeType.RightTriangle: return 1;
-            case ShapeType.AcuteTriangle: return 2;
-            case ShapeType.Square: return 3;
-            case ShapeType.Parallelogram: return 4;
-            default: return 1;
-        }
-    }
-
-    public static string GetName(ShapeType type)
-    {
-        switch (type)
-        {
-            case ShapeType.RightTriangle: return "right triangle";
-            case ShapeType.AcuteTriangle: return "acute triangle";
-            case ShapeType.Square: return "square";
-            case ShapeType.Parallelogram: return "parallelogram";
-            default: return "shape";
-        }
     }
 }

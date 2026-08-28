@@ -7,9 +7,6 @@ using UnityEngine;
 // Input is assumed already ordered around the perimeter and simplified.
 public class RightTriangleShape : IShapeDefinition
 {
-    public string Name => "Right triangle";
-    public int Points => 1;
-
     public bool Matches(List<Vector2> boundary)
     {
         if (boundary.Count != 3) return false;

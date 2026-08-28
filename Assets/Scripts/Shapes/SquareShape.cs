@@ -6,9 +6,6 @@ using UnityEngine;
 // Input is assumed already ordered around the perimeter and simplified.
 public class SquareShape : IShapeDefinition
 {
-    public string Name => "Square";
-    public int Points => 3;
-
     public bool Matches(List<Vector2> boundary)
     {
         if (boundary.Count != 4) return false;

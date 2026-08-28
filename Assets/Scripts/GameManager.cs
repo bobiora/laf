@@ -12,6 +12,12 @@ public class GameManager : MonoBehaviour
     [SerializeField] private Color player1Color = Color.red;
     [SerializeField] private Color player2Color = Color.green;
 
+    // Editor-tunable scoring (points + display names per shape type). Assign a
+    // ShapeScoringConfig asset here to tune balance without editing code. If left empty
+    // it is loaded from Resources/ShapeScoringConfig; if that is missing too, built-in
+    // defaults are used (see ResolveScoringConfig / ShapeScoringConfig.Default*).
+    [SerializeField] private ShapeScoringConfig scoringConfig;
+
     // Player abstraction: index 0 = player 1, index 1 = player 2.
     private IPlayer[] players = new IPlayer[2];
     private int[] scores = new int[2];
@@ -112,6 +118,16 @@ public class GameManager : MonoBehaviour
     {
         EnsurePreviewLine();
         if (debugEndGame) RunSegmentSelfTest();
+    }
+
+    // Resolves the scoring config with a graceful fallback chain so scoring always works:
+    //   inspector-assigned asset  ->  Resources/ShapeScoringConfig  ->  built-in defaults.
+    // The lookup result is cached in the field so Resources.Load runs at most once.
+    private ShapeScoringConfig ResolveScoringConfig()
+    {
+        if (scoringConfig == null)
+            scoringConfig = Resources.Load<ShapeScoringConfig>("ShapeScoringConfig");
+        return scoringConfig;
     }
 
     // ============================================================================
@@ -477,8 +493,11 @@ public class GameManager : MonoBehaviour
             closedShapes.Add(shape);
             gotShape = true;
 
-            int pts = ShapeRecognizer.GetPoints(type);
-            string name = ShapeRecognizer.GetName(type);
+            // Points and display name come from the editor-tunable config (with a
+            // built-in default fallback), not from hardcoded values.
+            ShapeScoringConfig cfg = ResolveScoringConfig();
+            int pts = cfg != null ? cfg.GetPoints(type) : ShapeScoringConfig.DefaultPoints(type);
+            string name = cfg != null ? cfg.GetName(type) : ShapeScoringConfig.DefaultName(type);
 
             AddScore(pts);
             if (debugEndGame)

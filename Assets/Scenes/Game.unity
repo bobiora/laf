@@ -2146,6 +2146,7 @@ MonoBehaviour:
   linePrefab: {fileID: 3369679102067749350, guid: 294ca5e1750854c4c9b4300d4b606689, type: 3}
   player1Color: {r: 1, g: 0, b: 0, a: 1}
   player2Color: {r: 0, g: 1, b: 0, a: 1}
+  scoringConfig: {fileID: 11400000, guid: 2569d7b0a909454da99e5231fa4254e9, type: 2}
   gameOverUI: {fileID: 14503719}
   isGameOver: 0
   debugEndGame: 0
@@ -2176,8 +2177,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a7ec87769bf4dbf4489878ce39f7e383, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HapticFeedback
-  lineConnectMilliseconds: 50
-  shapeCreatedMilliseconds: 80
+  lineConnectMilliseconds: 40
+  shapeCreatedMilliseconds: 70
   hapticsEnabled: 1
   logHaptics: 0
 --- !u!1660057539 &9223372036854775807
