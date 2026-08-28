@@ -17,10 +17,10 @@ MonoBehaviour:
     points: 5
     displayName: right triangle
   - type: 2
-    points: 10
+    points: 15
     displayName: acute triangle
   - type: 3
-    points: 15
+    points: 20
     displayName: square
   - type: 4
     points: 25

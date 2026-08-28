@@ -18,6 +18,11 @@ public class GameManager : MonoBehaviour
     // defaults are used (see ResolveScoringConfig / ShapeScoringConfig.Default*).
     [SerializeField] private ShapeScoringConfig scoringConfig;
 
+    // Optional "+N" score popup shown at the top of the screen when a scorable shape is
+    // closed. Assign the ScorePopupUI object from the Game scene here. Left empty, scoring
+    // still works — the popup is simply skipped.
+    [SerializeField] private ScorePopupUI scorePopup;
+
     // Player abstraction: index 0 = player 1, index 1 = player 2.
     private IPlayer[] players = new IPlayer[2];
     private int[] scores = new int[2];
@@ -500,6 +505,13 @@ public class GameManager : MonoBehaviour
             string name = cfg != null ? cfg.GetName(type) : ShapeScoringConfig.DefaultName(type);
 
             AddScore(pts);
+
+            // Big "+N" popup at the top of the screen, tinted with the scoring player's
+            // color (the turn hasn't switched yet, so GetCurrentColor() is correct). One
+            // call per scored shape; the popup queues them if a move closes two figures.
+            if (scorePopup != null)
+                scorePopup.Show(pts, GetCurrentColor());
+
             if (debugEndGame)
             {
                 Debug.Log($"[Face] new bounded face found: {FormatFace(shape)}, signed area = {SignedAreaGrid(shape):0.###}, classified as {name}, +{pts}");
@@ -753,6 +765,9 @@ public class GameManager : MonoBehaviour
     {
         Debug.Log("EndGame() called");
         isGameOver = true;
+
+        // Clear any pending/visible score popup so no number lingers over the end panel.
+        if (scorePopup != null) scorePopup.HideImmediately();
 
         if (gameOverUI == null)
         {
