@@ -53,6 +53,14 @@ public class ScorePopup : MonoBehaviour
         StartCoroutine(Animate(riseDistancePixels, riseDuration, fadeDuration));
     }
 
+    // Update the displayed value in place, keeping the animation running. Used when a
+    // single move closes two figures at once: the second award is folded into this number
+    // (e.g. +2 becomes +4) instead of spawning a separate popup.
+    public void SetPoints(int points)
+    {
+        if (pointsText != null) pointsText.text = $"+{points}";
+    }
+
     private IEnumerator Animate(float riseDistancePixels, float riseDuration, float fadeDuration)
     {
         // Appear immediately, fully visible, at the rest position set by the prefab/spawn.

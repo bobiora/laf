@@ -44,6 +44,14 @@ public class ScorePopupUI : MonoBehaviour
     // Live instances, so HideImmediately() can clear them all on game over / scene unload.
     private readonly List<ScorePopup> active = new List<ScorePopup>();
 
+    // Same-move combining: a single line can close two figures, each firing its own Show()
+    // in the SAME frame. Those are summed into one number (+total) rather than two popups.
+    // A Show() in a later frame (the extra-turn chain: close -> another turn -> close)
+    // starts a fresh number.
+    private ScorePopup currentFramePopup;
+    private int currentFramePoints;
+    private int lastShowFrame = -1;
+
     void Awake()
     {
         if (spawnParent == null) spawnParent = transform as RectTransform;
@@ -61,8 +69,21 @@ public class ScorePopupUI : MonoBehaviour
         }
         if (!isActiveAndEnabled) return;
 
+        // Two figures on one move (same frame): fold the second award into the number
+        // already spawned this frame so the player sees one combined +total.
+        if (Time.frameCount == lastShowFrame && currentFramePopup != null)
+        {
+            currentFramePoints += points;
+            currentFramePopup.SetPoints(currentFramePoints);
+            return;
+        }
+
+        currentFramePoints = points;
+        lastShowFrame = Time.frameCount;
+
         ScorePopup popup = Instantiate(popupPrefab, spawnParent);
         active.Add(popup);
+        currentFramePopup = popup;
         popup.Play(points, color, riseDistancePixels, riseDuration, fadeDuration, OnPopupFinished);
     }
 
@@ -74,6 +95,8 @@ public class ScorePopupUI : MonoBehaviour
             if (active[i] != null) Destroy(active[i].gameObject);
         }
         active.Clear();
+        currentFramePopup = null;
+        lastShowFrame = -1;
     }
 
     void OnDisable()
@@ -85,5 +108,6 @@ public class ScorePopupUI : MonoBehaviour
     private void OnPopupFinished(ScorePopup popup)
     {
         active.Remove(popup);
+        if (currentFramePopup == popup) currentFramePopup = null;
     }
 }
