@@ -15,6 +15,11 @@ public class BoardGenerator : MonoBehaviour
     // reason about on-screen dot spacing (readability check).
     public float Spacing => spacing;
 
+    // World-XY position of grid point (0,0) — the center of the bottom-left dot. This is the
+    // anchor NotebookBackground uses so its ruled lines line up on the dots at every board
+    // size. Equals GridBounds.min (a dot at grid (x,y) sits at Origin + (x,y) * spacing).
+    public Vector2 Origin => new Vector2(GridBounds.min.x, GridBounds.min.y);
+
     void Start()
     {
         // Read settings from the main menu (when starting from there)
@@ -38,6 +43,17 @@ public class BoardGenerator : MonoBehaviour
             else Debug.LogWarning("[BoardGenerator] No Camera.main found — cannot fit grid to screen.");
         }
         if (fitter != null) fitter.Fit();
+
+        // Auto-attach the squared-notebook paper background to the main camera (mirrors how
+        // CameraFitter and TurnBackground are auto-added — zero required inspector wiring).
+        // It draws pale ruled cells locked to the dot grid and sits behind everything else.
+        NotebookBackground notebook = FindFirstObjectByType<NotebookBackground>();
+        if (notebook == null)
+        {
+            Camera main = Camera.main;
+            if (main != null) notebook = main.gameObject.AddComponent<NotebookBackground>();
+        }
+        if (notebook != null) notebook.SetBoard(this);
     }
 
     void GenerateGrid()

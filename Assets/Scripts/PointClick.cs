@@ -11,7 +11,9 @@ public class PointClick : MonoBehaviour
     public bool isSelected = false;
 
     private SpriteRenderer sr;
-    private Color defaultColor = Color.white;
+    // Dark graphite/navy so the dots stay clearly visible on the cream notebook paper
+    // (NotebookBackground). White dots would vanish against the pale page.
+    private static readonly Color defaultColor = new Color(0.16f, 0.20f, 0.26f, 1f); // #29333F
 
     // Base local scale captured at load, so the swipe target "glow" (scale-up) can be
     // applied and reverted without drift.
@@ -36,7 +38,7 @@ public class PointClick : MonoBehaviour
     {
         isSelected = selected;
         if (sr == null) sr = GetComponent<SpriteRenderer>();
-        if (sr != null) sr.color = isSelected ? color : Color.white;
+        if (sr != null) sr.color = isSelected ? color : defaultColor;
     }
 
     // Target "release here to confirm" highlight during a swipe: scale the point up a

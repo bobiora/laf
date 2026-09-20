@@ -20,7 +20,8 @@ using UnityEngine;
 public class TurnBackground : MonoBehaviour
 {
     // Max opacity of the player color at the very bottom of the screen.
-    [SerializeField] private float bottomAlpha = 0.30f;
+    // Kept low so the notebook paper (NotebookBackground) still reads through the tint.
+    [SerializeField] private float bottomAlpha = 0.15f;
     // Normalized screen height (0 = bottom, 1 = top) where the gradient reaches alpha 0.
     // 0.5 keeps the whole upper half of the board completely clear.
     [SerializeField] private float fadeEndNormalized = 0.5f;

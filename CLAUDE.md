@@ -35,6 +35,7 @@ All scripts live in `Assets/Scripts/`. Two singletons/statics matter most:
 - `InputController.cs` — pointer input state machine (`Idle → Pressed → Dragging`). Owns drag-to-draw + tap-tap; commits moves via `GameManager.TryCommitLine`. Attached at runtime, no scene wiring.
 - `BoardGenerator.cs` — instantiates the dot grid from `GameSettings.BoardWidth/Height`; computes `GridBounds`; auto-attaches `CameraFitter`.
 - `CameraFitter.cs` — sizes/positions the orthographic camera so the whole grid fits any resolution/aspect, reserving pixel margins for UI.
+- `NotebookBackground.cs` — squared-exercise-book paper behind the board (sortingOrder −20). Auto-added to the Main Camera by `BoardGenerator`. Bakes one ruled cell into a `Repeat`-wrapped `Texture2D`, then stretches a world-space quad over the camera whose UVs are `(worldXY − BoardGenerator.Origin) / spacing`, so the pale-blue ruling stays locked to the dots at any size/zoom. Extra cells show past the board; optional faint red margin line. Also sets the camera clear color to the paper color.
 - `PointClick.cs` — one dot. Passive: holds `gridX/gridY` and its visual state (selection color, target glow). Does **not** read input.
 - `PolygonFill.cs` — static ear-clipping mesh builder for claimed-area fills; also `PointInPolygon`.
 - `GameSettings.cs` — static `BoardWidth`/`BoardHeight` carried from menu into the Game scene.
@@ -168,7 +169,7 @@ spacing drops below `minDotSpacingPixels` (44).
 - **Language:** all comments, `Debug.Log`, and UI text are **English**. Translate any legacy strings when you touch them.
 - **Input:** new Input System only (`Mouse.current`, `Touchscreen.current`). Never `UnityEngine.Input`.
 - **Fields:** `[SerializeField] private` + `public` properties where access is needed (see `BoardGenerator.GridBounds`, `GameManager` delegating props).
-- **Sorting orders** (low→high): claimed fills **−1** → lines **0** → preview line **5** → dots **10**. Dots always render above lines.
+- **Sorting orders** (low→high): notebook paper **−20** → turn tint **−10** → claimed fills **−1** → lines **0** → preview line **5** → dots **10**. Dots always render above lines.
 - **Runtime-instantiated UI** should be a prefab under `Assets/Prefabs/`, not built procedurally.
 - **New scripts** go in `Assets/Scripts/` (subfoldered by concern: `Shapes/`, `Players/`, `Save/`).
 - **Editor steps:** when a change needs Unity Editor actions (new GameObjects, inspector wiring, anchors), output them as a **numbered checklist at the end** of the response, separate from code.
