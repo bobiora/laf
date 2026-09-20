@@ -7,6 +7,7 @@ public class GameOverUI : MonoBehaviour
 {
     public GameObject panel;
     public TMP_Text resultText;
+    [SerializeField] private TMP_Text secondPlaceText;
     public Button menuButton;
     public Button restartButton;
 
@@ -17,7 +18,10 @@ public class GameOverUI : MonoBehaviour
         if (restartButton != null) restartButton.onClick.AddListener(OnRestartClicked);
     }
 
-    public void Show(int winnerPlayer, Color winnerColor, int winnerScore, bool draw)
+    // Receives both places so the panel can show the winner (line 1) and 2nd place (line 2).
+    // On a draw, loser fields are unused and the second-place line is hidden.
+    public void Show(int winnerPlayer, Color winnerColor, int winnerScore,
+                     int loserPlayer, Color loserColor, int loserScore, bool draw)
     {
         if (panel == null)
         {
@@ -39,6 +43,21 @@ public class GameOverUI : MonoBehaviour
             {
                 resultText.text = $"Player {winnerPlayer} wins! {winnerScore} points";
                 resultText.color = winnerColor;
+            }
+        }
+
+        if (secondPlaceText != null)
+        {
+            if (draw)
+            {
+                // No 2nd place on a draw — hide the line.
+                secondPlaceText.gameObject.SetActive(false);
+            }
+            else
+            {
+                secondPlaceText.gameObject.SetActive(true);
+                secondPlaceText.text = $"Player {loserPlayer} - {loserScore} points";
+                secondPlaceText.color = loserColor;
             }
         }
     }

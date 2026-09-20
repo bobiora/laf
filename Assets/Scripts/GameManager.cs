@@ -775,12 +775,13 @@ public class GameManager : MonoBehaviour
             return;
         }
 
+        // Pass both places (winner + 2nd) so the panel can show who lost and their score.
         if (scores[0] > scores[1])
-            gameOverUI.Show(1, players[0].Color, scores[0], false);
+            gameOverUI.Show(1, players[0].Color, scores[0], 2, players[1].Color, scores[1], false);
         else if (scores[1] > scores[0])
-            gameOverUI.Show(2, players[1].Color, scores[1], false);
+            gameOverUI.Show(2, players[1].Color, scores[1], 1, players[0].Color, scores[0], false);
         else
-            gameOverUI.Show(0, Color.white, scores[0], true);
+            gameOverUI.Show(0, Color.white, scores[0], 0, Color.white, scores[1], true);
     }
 
     void DrawLine(PointClick a, PointClick b)

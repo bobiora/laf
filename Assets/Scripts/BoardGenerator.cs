@@ -73,8 +73,13 @@ public class BoardGenerator : MonoBehaviour
         {
             for (int y = 0; y < height; y++)
             {
-                Vector3 pos = new Vector3(x * spacing - offsetX, y * spacing - offsetY, 0);
-                GameObject obj = Instantiate(pointPrefab, pos, Quaternion.identity, transform);
+                // Spawn in LOCAL space so dots live in the same frame as GridBounds/Origin.
+                // The (pos, rotation, parent) Instantiate overload sets WORLD position and
+                // ignores transform.position, so if BoardManager isn't at the origin the dots
+                // and the notebook ruling (locked to Origin = GridBounds.min) drift apart.
+                Vector3 local = new Vector3(x * spacing - offsetX, y * spacing - offsetY, 0f);
+                GameObject obj = Instantiate(pointPrefab, transform);
+                obj.transform.localPosition = local;
                 obj.name = $"Point_{x}_{y}";
 
                 PointClick pc = obj.GetComponent<PointClick>();
