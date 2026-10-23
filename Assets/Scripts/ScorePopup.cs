@@ -1,11 +1,13 @@
 using System;
 using System.Collections;
 using UnityEngine;
+using UnityEngine.UI;
 using TMPro;
 
 // A single "+N" score number. One of these is spawned (from a prefab) every time a
-// scorable shape is claimed. It appears at its rest position, drifts up, and fades out
-// while scaling — then destroys itself. Timing, distances, scales and easing all come from
+// scorable shape is claimed — by default as a white "coin" (shadow + face + rim tinted with
+// the player's color) with the digits on it. It appears at its rest position, drifts up, and
+// fades out while scaling — then destroys itself. Timing, distances, scales and easing all come from
 // a ScorePopupConfig asset. Instances are independent, so several can float on screen at
 // once during a combo; nothing is queued or reused.
 //
@@ -22,7 +24,18 @@ public class ScorePopup : MonoBehaviour
     [Tooltip("CanvasGroup used to fade the number out. Added at runtime if left empty.")]
     [SerializeField] private CanvasGroup canvasGroup;
 
+    [Header("Coin (optional — children stretched over this object)")]
+    [Tooltip("Soft disc drawn under the coin as its shadow.")]
+    [SerializeField] private Image coinShadow;
+
+    [Tooltip("White coin face behind the digits.")]
+    [SerializeField] private Image coinFace;
+
+    [Tooltip("Ring around the coin edge, tinted with the player's color.")]
+    [SerializeField] private Image coinRim;
+
     private RectTransform rectTransform;
+    private ScorePopupConfig config;
     private Action<ScorePopup> onFinished;
 
     void Awake()
@@ -42,14 +55,16 @@ public class ScorePopup : MonoBehaviour
     // the instance is spawned and positioned. onFinished lets the spawner drop its reference.
     public void Play(int points, Color color, ScorePopupConfig config, Action<ScorePopup> onFinished)
     {
+        this.config = config;
         this.onFinished = onFinished;
 
         if (pointsText != null)
         {
             pointsText.text = $"+{points}";
-            pointsText.color = color;
+            pointsText.color = config.GetTextColor(color);
         }
-        FitHeightToText();
+        ApplyCoinLook(color);
+        FitToContent();
 
         StartCoroutine(Animate(config));
     }
@@ -60,16 +75,55 @@ public class ScorePopup : MonoBehaviour
     public void SetPoints(int points)
     {
         if (pointsText != null) pointsText.text = $"+{points}";
-        FitHeightToText();
+        FitToContent();
     }
 
-    // Make the container exactly as tall as the rendered number, so the config's pivot
-    // (bottom / middle / top) refers to the visible digits rather than an arbitrary prefab
-    // height. The pivot stays put while the rect resizes around it.
-    private void FitHeightToText()
+    // Colors + visibility of the coin layers (shadow, face, player-colored rim).
+    private void ApplyCoinLook(Color playerColor)
     {
-        if (pointsText == null || rectTransform == null) return;
-        rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, pointsText.preferredHeight);
+        bool show = config.ShowCoin;
+
+        if (coinShadow != null)
+        {
+            coinShadow.gameObject.SetActive(show && config.ShadowColor.a > 0f);
+            coinShadow.color = config.ShadowColor;
+            coinShadow.rectTransform.anchoredPosition = config.ShadowOffsetPixels;
+        }
+        if (coinFace != null)
+        {
+            coinFace.gameObject.SetActive(show);
+            coinFace.color = config.CoinColor;
+        }
+        if (coinRim != null)
+        {
+            coinRim.gameObject.SetActive(show);
+            coinRim.color = config.GetRimColor(playerColor);
+        }
+    }
+
+    // Size the container to its content, so the config's pivot (bottom / middle / top) refers
+    // to what's visible rather than an arbitrary prefab size. With the coin: a square that fits
+    // the digits plus padding (the coin children stretch over it). Without: the digits' box.
+    // The pivot stays put while the rect resizes around it.
+    private void FitToContent()
+    {
+        if (pointsText == null || rectTransform == null || config == null) return;
+
+        pointsText.ForceMeshUpdate();
+        Vector2 digits = pointsText.textBounds.size;
+        if (digits.x <= 0f || digits.y <= 0f)
+            digits = pointsText.GetPreferredValues(pointsText.text);
+
+        Vector2 size = digits;
+        if (config.ShowCoin)
+        {
+            float d = Mathf.Max(config.MinCoinDiameter,
+                                Mathf.Max(digits.x, digits.y) + 2f * config.CoinPaddingPixels);
+            size = new Vector2(d, d);
+        }
+
+        rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, size.x);
+        rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, size.y);
     }
 
     private IEnumerator Animate(ScorePopupConfig config)

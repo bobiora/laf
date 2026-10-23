@@ -79,6 +79,40 @@ public class ScorePopupConfig : ScriptableObject
              "1 fully transparent.")]
     [SerializeField] private AnimationCurve fadeCurve = AnimationCurve.Linear(0f, 0f, 1f, 1f);
 
+    [Header("Coin")]
+    [Tooltip("Show the number on a white coin (disc + colored rim + shadow). Off = bare number.")]
+    [SerializeField] private bool showCoin = true;
+
+    [Tooltip("Free space between the digits and the coin edge, in UI pixels. The coin grows " +
+             "with the number (+12 gets a wider coin than +2).")]
+    [Min(0f)]
+    [SerializeField] private float coinPaddingPixels = 40f;
+
+    [Tooltip("Smallest coin diameter in UI pixels, so short numbers don't get a tiny coin.")]
+    [Min(0f)]
+    [SerializeField] private float minCoinDiameter = 150f;
+
+    [Tooltip("Color of the coin face.")]
+    [SerializeField] private Color coinColor = Color.white;
+
+    [Tooltip("Tint the coin rim with the scoring player's color. Off = use Rim Color.")]
+    [SerializeField] private bool rimUsesPlayerColor = true;
+
+    [Tooltip("Rim color when Rim Uses Player Color is off.")]
+    [SerializeField] private Color rimColor = new Color(0.85f, 0.85f, 0.85f, 1f);
+
+    [Tooltip("Tint the digits with the scoring player's color. Off = use Text Color.")]
+    [SerializeField] private bool textUsesPlayerColor = true;
+
+    [Tooltip("Digit color when Text Uses Player Color is off.")]
+    [SerializeField] private Color textColor = new Color(0.2f, 0.2f, 0.2f, 1f);
+
+    [Tooltip("Color (and transparency) of the shadow under the coin. Alpha 0 = no shadow.")]
+    [SerializeField] private Color shadowColor = new Color(0f, 0f, 0f, 0.25f);
+
+    [Tooltip("Shadow shift from the coin, in UI pixels. -Y = below.")]
+    [SerializeField] private Vector2 shadowOffsetPixels = new Vector2(0f, -8f);
+
     // ---- Position --------------------------------------------------------------------
 
     public Vector2 Pivot => new Vector2(pivotX, pivotY);
@@ -100,6 +134,20 @@ public class ScorePopupConfig : ScriptableObject
     public float EvaluateRise(float t) => Evaluate(riseCurve, t);
     public float EvaluateScale(float t) => Evaluate(scaleCurve, t);
     public float EvaluateFade(float t) => Evaluate(fadeCurve, t);
+
+    // ---- Coin --------------------------------------------------------------------------
+
+    public bool ShowCoin => showCoin;
+    public float CoinPaddingPixels => coinPaddingPixels;
+    public float MinCoinDiameter => minCoinDiameter;
+    public Color CoinColor => coinColor;
+    public Color ShadowColor => shadowColor;
+    public Vector2 ShadowOffsetPixels => shadowOffsetPixels;
+
+    public Color GetRimColor(Color playerColor) =>
+        rimUsesPlayerColor ? new Color(playerColor.r, playerColor.g, playerColor.b, 1f) : rimColor;
+
+    public Color GetTextColor(Color playerColor) => textUsesPlayerColor ? playerColor : textColor;
 
     // A missing/empty curve behaves as linear, so a cleared curve never freezes the popup.
     static float Evaluate(AnimationCurve curve, float t)
