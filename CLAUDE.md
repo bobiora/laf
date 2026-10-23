@@ -59,6 +59,8 @@ All scripts live in `Assets/Scripts/`. Two singletons/statics matter most:
 - `TurnUI.cs` — in-game score + turn indicator + player icons (updates every frame).
 - `GameOverUI.cs` — end panel with winner/draw text, Restart, Menu buttons.
 - `BackToMenu.cs` — in-game "back" button → MainMenu scene.
+- `ScorePopupUI.cs` / `ScorePopup.cs` — "+N" number spawned at the closed shape's center (`GameManager.ShapeWorldCenter`, projected to the overlay canvas); one same-frame popup per move (two faces fold into one +total).
+- `Config/ScorePopupConfig.cs` — ScriptableObject (`Resources/ScorePopupConfig.asset`) holding the popup's pivot/offset, speed, durations, rise distance, start/end scale and easing curves. Its inspector (`Editor/ScorePopupConfigEditor.cs`) has a Play-Mode "Play test popup" button.
 - `IconPickerDialog.cs` — reusable modal grid of selectable icons.
 - `PlayerIcons.cs` — static icon registry; loads `Resources/Icons`, persists choices, generates a fallback circle.
 

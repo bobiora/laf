@@ -217,10 +217,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ScorePopupUI
   popupPrefab: {fileID: 6833483972377671335, guid: c5304e5cd1b636e4688e83db66408ae1, type: 3}
+  config: {fileID: 11400000, guid: adeabfa668804ba280f1fe1ca450a473, type: 2}
   spawnParent: {fileID: 0}
-  riseDistancePixels: 80
-  riseDuration: 0.8
-  fadeDuration: 0.2
+  worldCamera: {fileID: 0}
 --- !u!1 &333580783
 GameObject:
   m_ObjectHideFlags: 0

@@ -18,9 +18,9 @@ public class GameManager : MonoBehaviour
     // defaults are used (see ResolveScoringConfig / ShapeScoringConfig.Default*).
     [SerializeField] private ShapeScoringConfig scoringConfig;
 
-    // Optional "+N" score popup shown at the top of the screen when a scorable shape is
-    // closed. Assign the ScorePopupUI object from the Game scene here. Left empty, scoring
-    // still works — the popup is simply skipped.
+    // Optional "+N" score popup shown at the center of a scorable shape when it is closed
+    // (position/animation tuned in Resources/ScorePopupConfig). Assign the ScorePopupUI object
+    // from the Game scene here. Left empty, scoring still works — the popup is simply skipped.
     [SerializeField] private ScorePopupUI scorePopup;
 
     // Player abstraction: index 0 = player 1, index 1 = player 2.
@@ -506,11 +506,12 @@ public class GameManager : MonoBehaviour
 
             AddScore(pts);
 
-            // Big "+N" popup at the top of the screen, tinted with the scoring player's
-            // color (the turn hasn't switched yet, so GetCurrentColor() is correct). One
-            // call per scored shape; the popup queues them if a move closes two figures.
+            // Big "+N" popup that pops out of the CENTER of the shape just closed, tinted
+            // with the scoring player's color (the turn hasn't switched yet, so
+            // GetCurrentColor() is correct). One call per scored shape; the popup folds them
+            // together if a single move closes two figures.
             if (scorePopup != null)
-                scorePopup.Show(pts, GetCurrentColor());
+                scorePopup.Show(pts, GetCurrentColor(), ShapeWorldCenter(shape));
 
             if (debugEndGame)
             {
@@ -821,6 +822,38 @@ public class GameManager : MonoBehaviour
     bool EdgeExists(PointClick a, PointClick b)
     {
         return edgeSet.Contains(EdgeKey(a, b));
+    }
+
+    // World-space center of a closed shape, used to spawn its "+N" score popup from the
+    // figure itself. Uses the polygon's area centroid (always inside a convex game shape);
+    // falls back to the plain vertex average for a degenerate/zero-area boundary.
+    Vector3 ShapeWorldCenter(List<PointClick> boundary)
+    {
+        int n = boundary.Count;
+        if (n == 0) return Vector3.zero;
+
+        float z = boundary[0].transform.position.z;
+        double area = 0.0, cx = 0.0, cy = 0.0;
+        for (int i = 0; i < n; i++)
+        {
+            Vector3 p0 = boundary[i].transform.position;
+            Vector3 p1 = boundary[(i + 1) % n].transform.position;
+            double cross = (double)p0.x * p1.y - (double)p1.x * p0.y;
+            area += cross;
+            cx += (p0.x + p1.x) * cross;
+            cy += (p0.y + p1.y) * cross;
+        }
+
+        if (Mathf.Abs((float)area) > 1e-6f)
+        {
+            double invArea = 1.0 / (3.0 * area); // area here is 2*signed-area, so 6*A = 3*area
+            return new Vector3((float)(cx * invArea), (float)(cy * invArea), z);
+        }
+
+        // Degenerate boundary: fall back to the average of the vertices.
+        Vector3 sum = Vector3.zero;
+        foreach (var p in boundary) sum += p.transform.position;
+        return sum / n;
     }
 
     void ClaimRegion(List<PointClick> boundary)

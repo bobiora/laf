@@ -170,8 +170,8 @@ public class HapticFeedback : MonoBehaviour
         // permission to the built manifest — a safety net in case it isn't added manually.
         if (Time.frameCount < 0) Handheld.Vibrate();
 #else
-        // Editor and non-Android platforms: nothing to do. Log only in development builds.
-        if (Debug.isDebugBuild)
+        // Editor and non-Android platforms: nothing to do. Log only when logHaptics is on.
+        if (logHaptics)
             Debug.Log($"[Haptics] Vibrate {milliseconds} ms (no-op on this platform)");
 #endif
     }

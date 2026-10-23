@@ -1,17 +1,23 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Spawner for "+N" score numbers. GameManager calls Show(points, color) the moment a
-// scorable shape is filled and scored in CommitLine; each call INSTANTLY spawns a fresh
-// ScorePopup instance that animates on its own (appear -> rise -> fade -> self-destroy).
+// Spawner for "+N" score numbers. GameManager calls Show(points, color, worldPosition) the
+// moment a scorable shape is filled and scored in CommitLine; each call INSTANTLY spawns a
+// fresh ScorePopup instance that animates on its own (appear -> rise -> fade -> self-destroy).
+//
+// The number appears at the CENTER of the shape that was just closed: GameManager passes the
+// shape's world-space center, which we project onto this UI's rect so the "+N" pops out of
+// the figure itself rather than from a fixed spot at the top of the screen.
+//
+// Position and animation are tuned in a ScorePopupConfig asset (Resources/ScorePopupConfig),
+// not here — see that class. Values are read per popup, so edits apply live in Play Mode.
 //
 // Nothing is queued and nothing waits: closing another figure right away (extra turn, or
 // two faces on one line) spawns another number immediately, so several may float at once
 // during a combo. One number per scored shape, so every close is visible.
 //
-// This lives on a Screen-Space Overlay Canvas child in the Game scene (in the top band
-// CameraFitter reserves) and is referenced from GameManager. See the editor checklist for
-// scene/prefab setup.
+// This lives on a Screen-Space Overlay Canvas child in the Game scene and is referenced from
+// GameManager. See the editor checklist for scene/prefab setup.
 [DisallowMultipleComponent]
 public class ScorePopupUI : MonoBehaviour
 {
@@ -20,26 +26,21 @@ public class ScorePopupUI : MonoBehaviour
              "scored shape.")]
     [SerializeField] private ScorePopup popupPrefab;
 
+    [Tooltip("Position + animation settings for the numbers. If empty, loads " +
+             "Resources/ScorePopupConfig; if that is missing, built-in defaults are used.")]
+    [SerializeField] private ScorePopupConfig config;
+
     [Tooltip("Parent the spawned numbers appear under. Defaults to this object's " +
-             "RectTransform so they inherit its top-center anchor / rest position.")]
+             "RectTransform. Each number is repositioned to the closed shape's center, so " +
+             "the parent's own anchor/rest position only matters as a fallback.")]
     [SerializeField] private RectTransform spawnParent;
 
-    [Header("Animation")]
-    [Tooltip("How far each number drifts upward, in UI pixels (anchoredPosition).")]
-    [SerializeField] private float riseDistancePixels = 20f;
+    [Tooltip("Camera used to project the shape's world center to screen space. Defaults to " +
+             "Camera.main, which is the board camera this game uses.")]
+    [SerializeField] private Camera worldCamera;
 
-    [Tooltip("Seconds for the upward drift.")]
-    [SerializeField] private float riseDuration = 0.8f;
-
-    [Tooltip("Seconds for the fade-out. Overlaps the tail of the rise.")]
-    [SerializeField] private float fadeDuration = 0.4f;
-
-    // Public accessors (clamped) so a settings UI or other systems can tune at runtime.
-    public float RiseDistancePixels
-    {
-        get => riseDistancePixels;
-        set => riseDistancePixels = Mathf.Max(0f, value);
-    }
+    // The config actually in use (assigned, Resources, or built-in defaults).
+    public ScorePopupConfig Config => ResolveConfig();
 
     // Live instances, so HideImmediately() can clear them all on game over / scene unload.
     private readonly List<ScorePopup> active = new List<ScorePopup>();
@@ -52,14 +53,27 @@ public class ScorePopupUI : MonoBehaviour
     private int currentFramePoints;
     private int lastShowFrame = -1;
 
+    // Canvas this UI lives under, cached so we can project world -> UI correctly for both
+    // Screen-Space Overlay and Screen-Space Camera setups.
+    private Canvas canvas;
+
     void Awake()
     {
         if (spawnParent == null) spawnParent = transform as RectTransform;
+        canvas = GetComponentInParent<Canvas>();
     }
 
-    // Spawn a new "+points" number tinted with the scoring player's color and start its
-    // animation immediately. Never queues, never waits on a previous popup.
-    public void Show(int points, Color color)
+    private ScorePopupConfig ResolveConfig()
+    {
+        if (config == null) config = Resources.Load<ScorePopupConfig>("ScorePopupConfig");
+        if (config == null) config = ScorePopupConfig.CreateDefault();
+        return config;
+    }
+
+    // Spawn a new "+points" number tinted with the scoring player's color, positioned at the
+    // just-closed shape's world center, and start its animation immediately. Never queues,
+    // never waits on a previous popup.
+    public void Show(int points, Color color, Vector3 worldPosition)
     {
         if (popupPrefab == null)
         {
@@ -70,7 +84,8 @@ public class ScorePopupUI : MonoBehaviour
         if (!isActiveAndEnabled) return;
 
         // Two figures on one move (same frame): fold the second award into the number
-        // already spawned this frame so the player sees one combined +total.
+        // already spawned this frame so the player sees one combined +total. It stays at
+        // the first shape's center (where the popup already is).
         if (Time.frameCount == lastShowFrame && currentFramePopup != null)
         {
             currentFramePoints += points;
@@ -81,10 +96,59 @@ public class ScorePopupUI : MonoBehaviour
         currentFramePoints = points;
         lastShowFrame = Time.frameCount;
 
+        ScorePopupConfig cfg = ResolveConfig();
+
         ScorePopup popup = Instantiate(popupPrefab, spawnParent);
         active.Add(popup);
         currentFramePopup = popup;
-        popup.Play(points, color, riseDistancePixels, riseDuration, fadeDuration, OnPopupFinished);
+
+        PositionAtWorld((RectTransform)popup.transform, worldPosition, cfg);
+
+        popup.Play(points, color, cfg, OnPopupFinished);
+    }
+
+    // Preview for tuning: spawns a "+N" over the middle of the board without closing a shape.
+    // Called by the ScorePopupConfig inspector's "Play test popup" button (Play Mode only).
+    public void ShowPreview(int points = 2)
+    {
+        BoardGenerator board = FindFirstObjectByType<BoardGenerator>();
+        Camera cam = worldCamera != null ? worldCamera : Camera.main;
+        Vector3 center = board != null ? board.GridBounds.center
+                       : cam != null ? cam.transform.position
+                       : Vector3.zero;
+
+        Color color = GameManager.Instance != null ? GameManager.Instance.GetCurrentColor()
+                                                   : Color.white;
+
+        lastShowFrame = -1; // never fold a preview into another popup
+        Show(points, color, center);
+    }
+
+    // Place a spawned popup so its config pivot (by default the bottom-center of the number)
+    // sits on the given world position (the shape's center), then apply the config offset.
+    // We go through the screen point, then onto the plane of this UI's rect, so it works
+    // whether the canvas renders in Screen-Space Overlay or Screen-Space Camera. Anchor
+    // independent: setting rectTransform.position moves the pivot however the prefab is anchored.
+    private void PositionAtWorld(RectTransform rt, Vector3 worldPosition, ScorePopupConfig cfg)
+    {
+        Camera cam = worldCamera != null ? worldCamera : Camera.main;
+        if (cam == null || spawnParent == null) return; // keep the prefab's rest position
+
+        rt.pivot = cfg.Pivot;
+
+        Vector2 screenPoint = cam.WorldToScreenPoint(worldPosition);
+
+        // For Overlay the canvas camera must be null; otherwise it's the canvas world camera.
+        Camera uiCam = (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+            ? canvas.worldCamera
+            : null;
+
+        if (RectTransformUtility.ScreenPointToWorldPointInRectangle(
+                spawnParent, screenPoint, uiCam, out Vector3 worldPoint))
+        {
+            rt.position = worldPoint;
+            rt.anchoredPosition += cfg.OffsetPixels;
+        }
     }
 
     // Destroy every live number. Called on game over so nothing lingers over the end panel.
